@@ -665,7 +665,7 @@ function MapaClues({ L, filtrados, nearest, userPos, distancias, focus, pickMode
         map.on("zoomend", mostrar);
       });
     // Diagnóstico: ¿el visor bloquea las imágenes del mapa por política de seguridad (CSP)?
-    const onCSP = (e) => { if (/cartocdn|openstreetmap|arcgisonline/.test(e.blockedURI || "")) onTilesStatus(false, "csp"); };
+    const onCSP = (e) => { if (/cartocdn|openstreetmap|arcgisonline|googleapis/.test(e.blockedURI || "")) onTilesStatus(false, "csp"); };
     document.addEventListener("securitypolicyviolation", onCSP);
     map.on("zoomend", () => setZoom(map.getZoom()));
     map.on("moveend", () => { setVista((v) => v + 1); live.current.onVista?.(map.getBounds()); });
@@ -675,22 +675,36 @@ function MapaClues({ L, filtrados, nearest, userPos, distancias, focus, pickMode
     //      bloquea las imágenes externas, debajo queda el fondo INEGI.
     const attrOSM = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
     const optT = { updateWhenIdle: coarse, keepBuffer: coarse ? 1 : 2, maxZoom: 19 };
-    const calles = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", { ...optT, subdomains: "abcd", attribution: `${attrOSM} &copy; <a href="https://carto.com/attributions">CARTO</a>` });
+    const calles = L.tileLayer(OSM_TILES, { ...optT, attribution: attrOSM }); // CARTO ahora exige API key; se usa OpenStreetMap
     const osm = L.tileLayer(OSM_TILES, { ...optT, attribution: attrOSM });
     const satImg = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { ...optT, attribution: "Imágenes &copy; Esri, Maxar, Earthstar Geographics" });
     const satRef = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", optT);
     const satelite = L.layerGroup([satImg, satRef]);
     const soloInegi = L.layerGroup();
+    // Google Maps (Map Tiles API). Clave restringida por referrer a urielcova.github.io
+    const GOOGLE_KEY = "AIzaSyAPkjJ2v-NpklMxCeV8gMK1ciGvfB4Li-s";
+    const capaGoogle = (mapType, layerTypes) => {
+      const ly = L.tileLayer("data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==", { ...optT, attribution: "&copy; Google" });
+      let pedida = false;
+      ly.on("add", () => {
+        if (pedida) return; pedida = true;
+        fetch("https://tile.googleapis.com/v1/createSession?key=" + GOOGLE_KEY, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mapType, language: "es-MX", region: "MX", ...(layerTypes ? { layerTypes } : {}) }) })
+          .then((r) => r.json()).then((d) => { if (!d.session) throw 0; ly.setUrl("https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}?session=" + d.session + "&key=" + GOOGLE_KEY); })
+          .catch(() => { pedida = false; });
+      });
+      return ly;
+    };
+    const gCalles = capaGoogle("roadmap"), gSat = capaGoogle("satellite", ["layerRoadmap"]);
     let cargadas = 0, tDet = 0;
     const vigilar = () => {
       cargadas = 0;
       clearTimeout(tDet);
       tDet = setTimeout(() => { if (!cargadas) onTilesStatus(false, navigator.onLine === false ? "offline" : "red"); }, 7000);
     };
-    [calles, osm, satImg].forEach((t) => t.on("tileload", () => { if (!cargadas++) onTilesStatus(true); }));
+    [calles, osm, satImg, gCalles, gSat].forEach((t) => t.on("tileload", () => { if (!cargadas++) onTilesStatus(true); }));
     calles.addTo(map);
     vigilar();
-    L.control.layers({ "Calles": calles, "Satélite": satelite, "OpenStreetMap": osm, "Solo límites INEGI": soloInegi }, null, { position: "topright", collapsed: true }).addTo(map);
+    L.control.layers({ "Calles": calles, "Satélite": satelite, "OpenStreetMap": osm, "Google Calles": gCalles, "Google Satélite": gSat, "Solo límites INEGI": soloInegi }, null, { position: "topright", collapsed: true }).addTo(map);
     map.on("baselayerchange", (e) => { if (e.layer === soloInegi) { clearTimeout(tDet); onTilesStatus(false, "manual"); } else vigilar(); });
     L.control.scale({ imperial: false, position: "bottomleft", maxWidth: 110 }).addTo(map);
 

@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dashboard CLUES · Establecimientos de Salud</title>
-<link rel="preconnect" href="https://a.basemaps.cartocdn.com" crossorigin>
+<link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin>
 <style>html,body{margin:0;background:#F4F6F8}#carga{font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;color:#6B1C35;text-align:center;padding:24px}</style></head>
 <body><div id="root"><div id="carga">Cargando catálogo CLUES…</div></div>
 <script>
 (function(){
-  var V="20261116b"; // cambia este valor al actualizar los datos o el código para renovar la caché
+  var V="20261116d"; // cambia este valor al actualizar los datos o el código para renovar la caché
   var datos={"d-base":"catalogo","d-detalles":"detalles","d-ent":"entidades","d-mun":"municipios","d-ref":"referencia","w-xlsx-gz":"xlsx"};
   var falla=function(e){document.getElementById("carga").innerHTML="No se pudo cargar el catálogo.<br>Abre esta página desde su dirección web (GitHub Pages), no como archivo local.<br><small>"+e+"</small>";};
   var txt=function(u){return fetch(u+"?v="+V).then(function(r){if(!r.ok)throw new Error(u+" "+r.status);return r.text();});};
