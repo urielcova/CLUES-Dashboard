@@ -1,17 +1,39 @@
 <!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dashboard CLUES · Establecimientos de Salud</title>
-<link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin>
-<style>html,body{margin:0;background:#F4F6F8}#carga{font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;color:#6B1C35;text-align:center;padding:24px}</style></head>
-<body><div id="root"><div id="carga">Cargando catálogo CLUES…</div></div>
+<link rel="preconnect" href="https://a.tile.openstreetmap.org" crossorigin>
+<link rel="preconnect" href="https://b.tile.openstreetmap.org" crossorigin>
+<link rel="preconnect" href="https://c.tile.openstreetmap.org" crossorigin>
+<style>html,body{margin:0;background:#F4F6F8}#carga{font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;color:#6B1C35;text-align:center;padding:24px}#carga progress{display:block;margin:12px auto 0;width:220px;accent-color:#6B1C35}</style></head>
+<body><div id="root"><div id="carga"><div>Cargando catálogo CLUES…<progress id="avance" max="100" value="0"></progress></div></div></div>
 <script>
 (function(){
-  var V="20261116d"; // cambia este valor al actualizar los datos o el código para renovar la caché
-  var datos={"d-base":"catalogo","d-detalles":"detalles","d-ent":"entidades","d-mun":"municipios","d-ref":"referencia","w-xlsx-gz":"xlsx"};
-  var falla=function(e){document.getElementById("carga").innerHTML="No se pudo cargar el catálogo.<br>Abre esta página desde su dirección web (GitHub Pages), no como archivo local.<br><small>"+e+"</small>";};
-  var txt=function(u){return fetch(u+"?v="+V).then(function(r){if(!r.ok)throw new Error(u+" "+r.status);return r.text();});};
-  var js=function(u){return new Promise(function(ok,ko){var s=document.createElement("script");s.src=u+"?v="+V;s.onload=ok;s.onerror=function(){ko(new Error(u));};document.body.appendChild(s);});};
-  var pend=Object.keys(datos).map(function(id){return txt("datos-"+datos[id]+".b64").then(function(t){var s=document.createElement("script");s.type="text/plain";s.id=id;s.textContent=t;document.body.appendChild(s);});});
-  Promise.all(pend).then(function(){return js("leaflet.js");}).then(function(){return js("app.js");}).catch(falla);
+  var V="20261116e"; // cambia este valor al actualizar los datos o el código para renovar la caché
+  // Datos gzip binarios (sin base64). Los marcados como inicio se descargan de inmediato;
+  // detalles (fichas) y xlsx (carga de catálogo) solo cuando la app los pide.
+  var datos={"d-base":["catalogo.json",1],"d-ent":["entidades.json",1],"d-mun":["municipios.json",1],"d-ref":["referencia.json",1],"d-detalles":["detalles.json",0],"w-xlsx-gz":["xlsx.js",0]};
+  var falla=function(e){var c=document.getElementById("carga");if(c)c.innerHTML="No se pudo cargar el catálogo.<br>Abre esta página desde su dirección web (GitHub Pages), no como archivo local.<br><small>"+e+"</small>";};
+  // Avance de la descarga inicial (bytes aproximados de los archivos de inicio + código)
+  var total=649191+43285+436065+227186+147552+685183,rec={},bar=document.getElementById("avance");
+  var avance=function(k,n){rec[k]=n;if(!bar)return;var s=0;for(var i in rec)s+=rec[i];bar.value=Math.min(99,100*s/total);};
+  var bin=function(u){return fetch(u+"?v="+V).then(function(r){
+    if(!r.ok)throw new Error(u+" "+r.status);
+    if(!r.body||!r.body.getReader)return r.arrayBuffer().then(function(b){avance(u,b.byteLength);return new Uint8Array(b);});
+    var rd=r.body.getReader(),partes=[],n=0;
+    return (function leer(){return rd.read().then(function(x){
+      if(x.done){var o=new Uint8Array(n),p=0;partes.forEach(function(c){o.set(c,p);p+=c.length;});return o;}
+      partes.push(x.value);n+=x.value.length;avance(u,n);return leer();});})();
+  });};
+  var cache={};
+  window.__cluesDatos=function(id){
+    var d=datos[id];if(!d)return null;
+    return cache[id]||(cache[id]=bin("datos-"+d[0]+".gz").catch(function(e){delete cache[id];throw e;}));
+  };
+  Object.keys(datos).forEach(function(id){if(datos[id][1])window.__cluesDatos(id).catch(function(){});});
+  // Código: se descarga en paralelo con los datos y se ejecuta en orden (leaflet → app)
+  var js=function(u){return new Promise(function(ok,ko){var s=document.createElement("script");s.src=u+"?v="+V;s.async=false;s.onload=ok;s.onerror=function(){ko(new Error(u));};document.body.appendChild(s);});};
+  Promise.all([js("leaflet.js"),js("app.js"),window.__cluesDatos("d-base")]).catch(falla);
+  // avance del código: estimado al terminar cada script
+  ["leaflet.js","app.js"].forEach(function(u,i){var sz=[147552,685183][i];document.querySelector('script[src^="'+u+'"]').addEventListener("load",function(){avance(u,sz);});});
 })();
 </script></body></html>

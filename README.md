@@ -13,9 +13,9 @@ Tablero interactivo del Catálogo de Clave Única de Establecimientos de Salud (
 ## Archivos
 | Archivo | Contenido |
 |---|---|
-| `index.html` | Cargador (aquí se cambia `V` para renovar la caché) |
+| `index.html` | Cargador: descarga datos y código en paralelo; `detalles` y `xlsx` solo bajo demanda (aquí se cambia `V` para renovar la caché) |
 | `app.js`, `leaflet.js` | Aplicación compilada y librería de mapas |
-| `datos-*.b64` | Catálogo, detalles, límites INEGI y referencia (gzip + base64) |
+| `datos-*.gz` | Catálogo, detalles, límites INEGI, referencia y lector de Excel (gzip binario) |
 | `fuente-*` | Código fuente y script de compilación |
 | `Dashboard_CLUES_archivo_unico.html` | Versión de un solo archivo, para uso sin internet |
 

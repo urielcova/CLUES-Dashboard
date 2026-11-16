@@ -122,11 +122,17 @@ const normEntidad = (s = "") => fold(s).replace(/ DE IGNACIO DE LA LLAVE| DE OCA
 
 /* Decodifica la base empaquetada (gzip + base64) → arreglo de registros con las columnas originales */
 // Los bloques de datos pueden venir en <script type="text/plain" id="..."> (versión HTML: no se analizan como JS)
-const blob = (id, valor) => (valor && valor.length > 8 ? valor : document.getElementById(id)?.textContent.trim() || "");
-async function gunzipB64(b64) {
+// En GitHub Pages, index.html define window.__cluesDatos(id) → Promise<Uint8Array> (gzip binario, descarga bajo demanda)
+const blob = (id, valor) => (valor && valor.length > 8 ? valor : window.__cluesDatos?.(id) || document.getElementById(id)?.textContent.trim() || "");
+const aBytes = (b64) => {
   const s = atob(b64);
   const bin = new Uint8Array(s.length);
   for (let i = 0; i < s.length; i++) bin[i] = s.charCodeAt(i);
+  return bin;
+};
+async function gunzipB64(entrada) {
+  const v = await entrada;
+  const bin = typeof v === "string" ? aBytes(v) : v;
   return JSON.parse(await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream("gzip"))).text());
 }
 
@@ -318,12 +324,10 @@ const XLSX_CDN = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.m
 const WORKER_SRC = /*__WORKER__*/;
 async function crearWorkerCatalogo() {
   // Lector de Excel (SheetJS): incluido comprimido en la versión HTML (funciona sin internet); si no, desde cdnjs
-  const gz = document.getElementById("w-xlsx-gz")?.textContent.trim();
+  const gz = window.__cluesDatos ? await window.__cluesDatos("w-xlsx-gz").catch(() => null) : document.getElementById("w-xlsx-gz")?.textContent.trim();
   let pre = `importScripts(${JSON.stringify(XLSX_CDN)});`;
-  if (gz && gz.length > 1000) {
-    const s = atob(gz);
-    const bin = new Uint8Array(s.length);
-    for (let i = 0; i < s.length; i++) bin[i] = s.charCodeAt(i);
+  if (gz && (gz.byteLength || gz.length) > 1000) {
+    const bin = typeof gz === "string" ? aBytes(gz) : gz;
     pre = await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
   }
   return new Worker(URL.createObjectURL(new Blob([pre, "\n;\n", WORKER_SRC], { type: "text/javascript" })));
