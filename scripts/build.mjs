@@ -1,7 +1,7 @@
 // Compila el tablero.  Uso:  npm install && npm run build
 //
 // Entradas (todo en el repositorio):
-//   src/App.template.jsx     código de la aplicación (con marcadores /*__CSS__*/, /*__LOGOS__*/, /*__WORKER__*/)
+//   src/main.jsx             punto de entrada (App.jsx, Dashboard.jsx, mapa/, componentes/, ...)
 //   src/catalogo.worker.js   procesador de catálogos nuevos (Web Worker)
 //   src/logos.json           logotipos institucionales (data URI)
 //   src/estilos.css          entrada de Tailwind (tailwind.config.js)
@@ -15,6 +15,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import * as esbuild from "esbuild";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,35 +26,41 @@ const require = createRequire(import.meta.url);
 const bin = (pkg) => ruta("node_modules", ".bin", pkg);
 mkdirSync(ruta("dist"), { recursive: true });
 
-// 1) CSS: Tailwind (solo las clases usadas en src/*.jsx) + estilos de Leaflet
+// 1) CSS: Tailwind (solo las clases usadas en src/) + estilos de Leaflet
 execFileSync(bin("tailwindcss"), ["-c", "tailwind.config.js", "-i", "src/estilos.css", "-o", "dist/tw.css", "--minify"], { cwd: raiz, stdio: "pipe" });
 const leafletDir = dirname(require.resolve("leaflet/package.json"));
 const css = leer("dist", "tw.css") + readFileSync(join(leafletDir, "dist", "leaflet.css"), "utf8");
 
-// 2) Código: se insertan CSS, logos y worker; los marcadores de datos quedan vacíos
-//    (los datos se leen de datos/*.gz en GitHub Pages o de <script type="text/plain"> en el archivo único)
+// 2) Código: esbuild empaqueta src/main.jsx. Módulos especiales:
+//    "virtual:tailwind" → CSS anterior (texto) · src/catalogo.worker.js → texto (se ejecuta como Web Worker)
+const especiales = {
+  name: "clues",
+  setup(b) {
+    b.onResolve({ filter: /^virtual:tailwind$/ }, () => ({ path: "tailwind", namespace: "clues" }));
+    b.onLoad({ filter: /.*/, namespace: "clues" }, () => ({ contents: css, loader: "text" }));
+    b.onLoad({ filter: /\.worker\.js$/ }, (a) => ({ contents: readFileSync(a.path, "utf8"), loader: "text" }));
+  },
+};
+await esbuild.build({
+  absWorkingDir: raiz,
+  entryPoints: ["src/main.jsx"],
+  bundle: true,
+  minify: true,
+  format: "iife",
+  jsx: "automatic",
+  define: { "process.env.NODE_ENV": '"production"' },
+  outfile: "app.js",
+  logLevel: "warning",
+  plugins: [especiales],
+});
+const appJs = leer("app.js");
+const leafletJs = readFileSync(join(leafletDir, "dist", "leaflet.js"), "utf8");
+writeFileSync(ruta("leaflet.js"), leafletJs);
+
 const sustituir = (t, buscar, poner) => {
   if (!t.includes(buscar)) throw new Error(`No se encontró el marcador ${buscar}`);
   return t.split(buscar).join(poner);
 };
-let jsx = leer("src", "App.template.jsx");
-jsx = sustituir(jsx, "/*__CSS__*/", JSON.stringify(css));
-jsx = sustituir(jsx, "/*__LOGOS__*/", leer("src", "logos.json"));
-jsx = sustituir(jsx, "/*__WORKER__*/", JSON.stringify(leer("src", "catalogo.worker.js")));
-for (const m of ["ENTB64", "MUNB64", "DATAB64", "BASEB64", "DETB64"]) jsx = sustituir(jsx, `/*__${m}__*/`, "");
-writeFileSync(ruta("dist", "_app.jsx"), jsx);
-writeFileSync(
-  ruta("dist", "_entrada.jsx"),
-  'import React from "react";import {createRoot} from "react-dom/client";import App from "./_app.jsx";createRoot(document.getElementById("root")).render(<App/>);',
-);
-execFileSync(
-  bin("esbuild"),
-  ["dist/_entrada.jsx", "--bundle", "--minify", "--format=iife", "--jsx=automatic", "--define:process.env.NODE_ENV=\"production\"", "--outfile=app.js", "--log-level=warning"],
-  { cwd: raiz, stdio: "inherit" },
-);
-const appJs = leer("app.js");
-const leafletJs = readFileSync(join(leafletDir, "dist", "leaflet.js"), "utf8");
-writeFileSync(ruta("leaflet.js"), leafletJs);
 
 // 3) Cargador: la versión de caché es la huella del código y los datos, así cambia sola
 const datos = { "d-base": "catalogo.json", "d-ent": "entidades.json", "d-mun": "municipios.json", "d-ref": "referencia.json", "d-detalles": "detalles.json", "w-xlsx-gz": "xlsx.js" };
