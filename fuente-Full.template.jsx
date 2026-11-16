@@ -970,10 +970,12 @@ function MapaClues({ L, filtrados, nearest, userPos, distancias, focus, pickMode
     const map = mapRef.current;
     if (!map || !visible) return;
     const t = setTimeout(() => {
+      const antes = map.getSize(); // tamaño previo: 0×0 si el mapa se creó con la pestaña oculta
       map.invalidateSize({ pan: false });
       const p = pendiente.current;
       pendiente.current = null;
       if (p) p();
+      else if (!antes.x || !antes.y) map.fitBounds([[14.5, -118.4], [32.7, -86.7]], { animate: false }); // primer encuadre real: todo México
       else live.current.onVista?.(map.getBounds());
     }, 60);
     return () => clearTimeout(t);
