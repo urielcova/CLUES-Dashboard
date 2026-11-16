@@ -10,18 +10,18 @@ Tablero interactivo del Catálogo de Clave Única de Establecimientos de Salud (
 - Ficha por unidad con indicaciones en Google Maps.
 - Panel **Catálogo** para revisar y cargar un archivo nuevo (clic o arrastrar).
 
-## Estructura
-| Ruta | Contenido |
+## Archivos
+| Archivo | Contenido |
 |---|---|
 | `index.html` | Cargador (aquí se cambia `V` para renovar la caché) |
-| `assets/` | `app.js` (aplicación compilada) y `leaflet.js` |
-| `data/` | Catálogo, detalles, límites INEGI y referencia, comprimidos (gzip + base64) |
-| `herramientas/` | Código fuente y script de compilación |
+| `app.js`, `leaflet.js` | Aplicación compilada y librería de mapas |
+| `datos-*.b64` | Catálogo, detalles, límites INEGI y referencia (gzip + base64) |
+| `fuente-*` | Código fuente y script de compilación |
 | `Dashboard_CLUES_archivo_unico.html` | Versión de un solo archivo, para uso sin internet |
 
 ## Actualizar el catálogo
 1. Abre el sitio → pestaña **Catálogo** → carga el nuevo `ESTABLECIMIENTO_SALUD_*.xlsx` y revisa altas, bajas y cambios (solo queda en tu navegador).
-2. Para publicarlo a todos, genera los archivos de `data/` con el mismo proceso y sube los cambios; después cambia `V` en `index.html`.
+2. Para publicarlo a todos, genera los archivos `datos-*.b64` con el mismo proceso y sube los cambios; después cambia `V` en `index.html`.
 
 ## Fuentes
 - DGIS, Catálogo CLUES (Secretaría de Salud).

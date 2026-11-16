@@ -11,7 +11,7 @@
   var falla=function(e){document.getElementById("carga").innerHTML="No se pudo cargar el catálogo.<br>Abre esta página desde su dirección web (GitHub Pages), no como archivo local.<br><small>"+e+"</small>";};
   var txt=function(u){return fetch(u+"?v="+V).then(function(r){if(!r.ok)throw new Error(u+" "+r.status);return r.text();});};
   var js=function(u){return new Promise(function(ok,ko){var s=document.createElement("script");s.src=u+"?v="+V;s.onload=ok;s.onerror=function(){ko(new Error(u));};document.body.appendChild(s);});};
-  var pend=Object.keys(datos).map(function(id){return txt("data/"+datos[id]+".b64").then(function(t){var s=document.createElement("script");s.type="text/plain";s.id=id;s.textContent=t;document.body.appendChild(s);});});
-  Promise.all(pend).then(function(){return js("assets/leaflet.js");}).then(function(){return js("assets/app.js");}).catch(falla);
+  var pend=Object.keys(datos).map(function(id){return txt("datos-"+datos[id]+".b64").then(function(t){var s=document.createElement("script");s.type="text/plain";s.id=id;s.textContent=t;document.body.appendChild(s);});});
+  Promise.all(pend).then(function(){return js("leaflet.js");}).then(function(){return js("app.js");}).catch(falla);
 })();
 </script></body></html>
