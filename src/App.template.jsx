@@ -4,7 +4,7 @@
  * Criterio: ESTATUS DE OPERACION = "EN OPERACION" y NIVEL ATENCION ∈ {PRIMER, SEGUNDO, TERCER}
  *
  * Archivo único. Importa solo `react` y `lucide-react`.
- * Leaflet se carga desde cdnjs; los datos van comprimidos (gzip + base64) al final del archivo.
+ * Compilación: scripts/build.mjs (inserta CSS, logos y worker). Datos: datos/*.gz.
  */
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {

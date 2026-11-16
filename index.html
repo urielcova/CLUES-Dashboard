@@ -8,13 +8,13 @@
 <body><div id="root"><div id="carga"><div>Cargando catálogo CLUES…<progress id="avance" max="100" value="0"></progress></div></div></div>
 <script>
 (function(){
-  var V="20261116e"; // cambia este valor al actualizar los datos o el código para renovar la caché
+  var V="4fe028edab"; // lo genera scripts/build.mjs (huella del contenido) para renovar la caché
   // Datos gzip binarios (sin base64). Los marcados como inicio se descargan de inmediato;
   // detalles (fichas) y xlsx (carga de catálogo) solo cuando la app los pide.
   var datos={"d-base":["catalogo.json",1],"d-ent":["entidades.json",1],"d-mun":["municipios.json",1],"d-ref":["referencia.json",1],"d-detalles":["detalles.json",0],"w-xlsx-gz":["xlsx.js",0]};
   var falla=function(e){var c=document.getElementById("carga");if(c)c.innerHTML="No se pudo cargar el catálogo.<br>Abre esta página desde su dirección web (GitHub Pages), no como archivo local.<br><small>"+e+"</small>";};
   // Avance de la descarga inicial (bytes aproximados de los archivos de inicio + código)
-  var total=649191+43285+436065+227186+147552+685183,rec={},bar=document.getElementById("avance");
+  var total=2193981,rec={},bar=document.getElementById("avance");
   var avance=function(k,n){rec[k]=n;if(!bar)return;var s=0;for(var i in rec)s+=rec[i];bar.value=Math.min(99,100*s/total);};
   var bin=function(u){return fetch(u+"?v="+V).then(function(r){
     if(!r.ok)throw new Error(u+" "+r.status);
@@ -27,13 +27,13 @@
   var cache={};
   window.__cluesDatos=function(id){
     var d=datos[id];if(!d)return null;
-    return cache[id]||(cache[id]=bin("datos-"+d[0]+".gz").catch(function(e){delete cache[id];throw e;}));
+    return cache[id]||(cache[id]=bin("datos/"+d[0]+".gz").catch(function(e){delete cache[id];throw e;}));
   };
   Object.keys(datos).forEach(function(id){if(datos[id][1])window.__cluesDatos(id).catch(function(){});});
   // Código: se descarga en paralelo con los datos y se ejecuta en orden (leaflet → app)
   var js=function(u){return new Promise(function(ok,ko){var s=document.createElement("script");s.src=u+"?v="+V;s.async=false;s.onload=ok;s.onerror=function(){ko(new Error(u));};document.body.appendChild(s);});};
   Promise.all([js("leaflet.js"),js("app.js"),window.__cluesDatos("d-base")]).catch(falla);
   // avance del código: estimado al terminar cada script
-  ["leaflet.js","app.js"].forEach(function(u,i){var sz=[147552,685183][i];document.querySelector('script[src^="'+u+'"]').addEventListener("load",function(){avance(u,sz);});});
+  ["leaflet.js","app.js"].forEach(function(u,i){var sz=[147552,690702][i];document.querySelector('script[src^="'+u+'"]').addEventListener("load",function(){avance(u,sz);});});
 })();
 </script></body></html>
