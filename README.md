@@ -19,10 +19,6 @@ Tablero interactivo del Catálogo de Clave Única de Establecimientos de Salud (
 | `fuente-*` | Código fuente y script de compilación |
 | `Dashboard_CLUES_archivo_unico.html` | Versión de un solo archivo, para uso sin internet |
 
-## Actualizar el catálogo
-1. Abre el sitio → pestaña **Catálogo** → carga el nuevo `ESTABLECIMIENTO_SALUD_*.xlsx` y revisa altas, bajas y cambios (solo queda en tu navegador).
-2. Para publicarlo a todos, genera los archivos `datos-*.b64` con el mismo proceso y sube los cambios; después cambia `V` en `index.html`.
-
 ## Fuentes
 - DGIS, Catálogo CLUES (Secretaría de Salud).
 - INEGI, Marco Geoestadístico 2025 (límites estatales y municipales).
