@@ -1,0 +1,19 @@
+{
+  "name": "clues-dashboard",
+  "private": true,
+  "description": "Tablero del Catálogo CLUES (DGIS) con mapa",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "serve": "python3 -m http.server 8080"
+  },
+  "dependencies": {
+    "leaflet": "1.9.4",
+    "lucide-react": "0.400.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.0",
+    "tailwindcss": "3.4.19"
+  }
+}

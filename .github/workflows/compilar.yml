@@ -1,0 +1,41 @@
+# Compila el tablero, comprueba que lo publicado (app.js, leaflet.js, index.html) corresponde
+# al código fuente, y en main publica la versión de un solo archivo como Release «ultima».
+name: Compilar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  compilar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Los archivos publicados deben estar al día con src/ y datos/
+        run: |
+          if ! git diff --quiet -- app.js leaflet.js index.html; then
+            git diff --stat -- app.js leaflet.js index.html
+            echo "::error::Ejecuta «npm run build» y sube app.js, leaflet.js e index.html."
+            exit 1
+          fi
+      - name: Publicar archivo único (Release «ultima»)
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete ultima --yes --cleanup-tag 2>/dev/null || true
+          gh release create ultima dist/Dashboard_CLUES_archivo_unico.html \
+            --title "Archivo único (sin internet)" \
+            --notes "Versión de un solo archivo compilada desde ${GITHUB_SHA::7}. Descárgala y ábrela en el navegador; funciona sin internet (el mapa base requiere conexión)." \
+            --target "$GITHUB_SHA"
