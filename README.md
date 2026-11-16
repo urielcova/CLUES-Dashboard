@@ -13,7 +13,12 @@ Tablero interactivo del Catálogo de Clave Única de Establecimientos de Salud (
 ## Archivos
 | Ruta | Contenido |
 |---|---|
-| `src/App.template.jsx` | Código de la aplicación (React + Leaflet) |
+| `src/main.jsx`, `src/App.jsx` | Punto de entrada y carga del catálogo (publicado o subido) |
+| `src/Dashboard.jsx` | Tablero: filtros, resumen, mapa, lista y exportación |
+| `src/mapa/` | Mapa Leaflet (`MapaClues.jsx`), capa de puntos en canvas y popups |
+| `src/componentes/` | Controles (`ui.jsx`), ficha de la unidad y panel de catálogo |
+| `src/datos.js`, `src/util.js` | Lectura de los datos comprimidos y utilidades (distancias, horarios, CSV, IndexedDB) |
+| `src/instituciones.jsx`, `src/estilos.js` | Instituciones, colores, logos y estilos propios |
 | `src/catalogo.worker.js` | Procesador de catálogos nuevos (Web Worker) |
 | `src/index.template.html` | Plantilla del cargador: descarga datos y código en paralelo; `detalles` y `xlsx` solo bajo demanda |
 | `src/logos.json`, `src/estilos.css`, `tailwind.config.js` | Logotipos institucionales y estilos (Tailwind CSS 3) |
