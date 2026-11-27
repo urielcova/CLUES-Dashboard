@@ -30,6 +30,7 @@ const DEF = {
   soloSeleccion: false,
   etiquetaSel: "numero",
   colorSel: C.dorado,
+  tamSel: 1,
   etiquetas: { entidades: false, municipios: false, jurisdicciones: false },
   elementos: { leyenda: true, inset: true, notas: true, norte: true, escala: true, marco: true },
   fuenteTitulos: "montserrat",
@@ -588,7 +589,8 @@ export function ExportarMapa({ data, filtrados, selEnt, selMun, corte, filtrosTe
                 ))}
               </ol>
               <button type="button" onClick={() => setSelClues([])} className="flex items-center gap-1 text-xs font-semibold text-guinda hover:underline"><Trash2 style={{ width: 13, height: 13 }} /> Quitar todos</button>
-              <div><Etq>Etiqueta en el mapa</Etq><Opciones value={o.etiquetaSel} onChange={(v) => cambia("etiquetaSel", v)} opciones={[["numero", "Número"], ["nombre", "Nombre"], ["clues", "CLUES"]]} /></div>
+              <div><Etq>Etiqueta en el mapa</Etq><Opciones value={o.etiquetaSel} onChange={(v) => cambia("etiquetaSel", v)} opciones={[["numero", "Número"], ["ninguna", "Sin número"], ["nombre", "Nombre"], ["clues", "CLUES"]]} /></div>
+              <Deslizador label="Tamaño del marcador" value={o.tamSel} min={0.5} max={2.5} step={0.1} onChange={(v) => cambia("tamSel", v)} fmt={(v) => `${Math.round(v * 100)}%`} />
               <div className="flex items-center justify-between gap-3 text-sm text-neutral-700">
                 <span>Color de resaltado</span>
                 <span className="flex items-center gap-1.5">

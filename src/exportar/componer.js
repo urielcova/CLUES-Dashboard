@@ -465,7 +465,7 @@ function dibujarMapa(ctx, R, u, g, o, prep, esquinaLeyenda) {
 
   // 6) Establecimientos seleccionados (encima de todo)
   if (seleccion.length) {
-    const rs = Math.max(1.7 * u, o.puntos.tam * u * 0.24);
+    const rs = Math.max(1.7 * u, o.puntos.tam * u * 0.24) * (o.tamSel || 1) * (o.etiquetaSel === "numero" ? 1 : 0.8);
     seleccion.forEach((p, i) => {
       if (p.LATITUD == null) return;
       const [x, y] = pr(p.LONGITUD, p.LATITUD);
@@ -482,7 +482,7 @@ function dibujarMapa(ctx, R, u, g, o, prep, esquinaLeyenda) {
         ctx.textAlign = "center";
         ctx.fillStyle = esOscuro(o.colorSel) ? "#ffffff" : "#111827";
         ctx.fillText(String(i + 1), x, y + rs * 0.05);
-      } else {
+      } else if (o.etiquetaSel !== "ninguna") {
         ctx.font = fuente(1.55 * u, 700);
         ctx.textAlign = "left";
         textoHalo(ctx, o.etiquetaSel === "clues" ? p.CLUES : titleCase(p["NOMBRE DE LA UNIDAD"]), x + rs * 1.5, y, 1.55 * u, "#111827");
@@ -616,7 +616,22 @@ function dibujarInset(ctx, R, u, g, o, prep) {
 }
 
 /* Leyenda + mapa de ubicación + notas */
+/* Panel: si la leyenda o las notas no caben, se reduce el texto (hasta 60 %) en lugar de recortar */
 function dibujarPanel(ctx, P, u, g, o, prep, conLeyenda) {
+  const base = ESC_T;
+  let elegido = 0.6;
+  for (const f of [1, 0.92, 0.85, 0.78, 0.7, 0.64]) {
+    ESC_T = base * f;
+    const r = panelInterno(medidor(ctx), P, u, g, o, prep, conLeyenda);
+    if (r.completo) { elegido = f; break; }
+  }
+  ESC_T = base * elegido;
+  panelInterno(ctx, P, u, g, o, prep, conLeyenda);
+  ESC_T = base;
+}
+
+function panelInterno(ctx, P, u, g, o, prep, conLeyenda) {
+  let completo = true;
   const lateral = P.tipo === "lateral";
   let colL, colR;
   if (lateral) colL = colR = { x: P.x, w: P.w };
@@ -646,7 +661,7 @@ function dibujarPanel(ctx, P, u, g, o, prep, conLeyenda) {
   const altoNotas = lineasNotas.reduce((t, l) => t + altoLinea(l), 0);
   const limiteLeyenda = lateral ? limite - altoNotas - u : limite;
 
-  if (o.elementos.leyenda && conLeyenda) dibujarLeyenda(ctx, colL, y, limiteLeyenda, u, g, o, prep, lateral ? (colL.w > 30 * u ? 2 : 1) : 3);
+  if (o.elementos.leyenda && conLeyenda) completo = dibujarLeyenda(ctx, colL, y, limiteLeyenda, u, g, o, prep, lateral ? (colL.w > 30 * u ? 2 : 1) : 3).completo;
 
   if (lineasNotas.length) {
     let yn = lateral ? limite - altoNotas : yR;
@@ -656,11 +671,12 @@ function dibujarPanel(ctx, P, u, g, o, prep, conLeyenda) {
       const [l, negrita] = ln;
       ctx.font = fuente(negrita ? fs * 1.15 : fs, negrita ? 700 : 400);
       ctx.fillStyle = negrita ? "#111827" : "#374151";
-      if (yn + fs * ESC_T > limite) break;
+      if (l && yn + fs * ESC_T > limite) { completo = false; break; }
       if (l) ctx.fillText(l, colR.x, yn);
       yn += altoLinea(ln);
     }
   }
+  return { completo };
 }
 
 /* Leyenda en una columna (x, w) desde y hasta limite; devuelve la altura final */
@@ -675,8 +691,9 @@ function dibujarLeyenda(ctx, colL, y, limiteLeyenda, u, g, o, prep, maxCols) {
   // ¿cabe todo en una columna? si no, las secciones largas usan las columnas disponibles
   const altoSec = (s, c) => fl * 1.4 * ESC_T + 0.4 * u + Math.ceil(s.items.length / c) * paso + 1.6 * u;
   const unaCol = secciones.reduce((t, s) => t + altoSec(s, 1), 0) <= limiteLeyenda - y;
+  let completo = true;
   for (const s of secciones) {
-    if (y + paso * 2 > limiteLeyenda) break;
+    if (y + paso * 2 > limiteLeyenda) { completo = false; break; }
     ctx.font = fuente(fl * 1.12, 700);
     ctx.fillStyle = "#1f2937";
     ctx.textBaseline = "top";
@@ -686,6 +703,7 @@ function dibujarLeyenda(ctx, colL, y, limiteLeyenda, u, g, o, prep, maxCols) {
     const cols = Math.min(maxCols, Math.max(unaCol || s.items.length <= 3 ? 1 : maxCols, Math.ceil(s.items.length / filas)));
     const cabe = filas * cols;
     const items = s.items.length > cabe && cabe > 1 ? [...s.items.slice(0, cabe - 1), { texto: `… y ${s.items.length - cabe + 1} más`, sinMarca: true }] : s.items;
+    if (items !== s.items) completo = false;
     const porCol = Math.ceil(items.length / cols), anchoCol = colL.w / cols;
     items.forEach((it, i) => {
       const cx = colL.x + Math.floor(i / porCol) * anchoCol, cy = y + (i % porCol) * paso;
@@ -703,7 +721,7 @@ function dibujarLeyenda(ctx, colL, y, limiteLeyenda, u, g, o, prep, maxCols) {
     });
     y += porCol * paso + 1.6 * u;
   }
-  return y;
+  return { y, completo };
 }
 
 /* Contexto que solo mide (para calcular la altura de la leyenda antes de dibujarla) */
@@ -721,7 +739,14 @@ function medidor(real) {
 
 function dibujarLeyendaEnMapa(ctx, R, u, g, o, prep) {
   const w = Math.min(Math.max(R.w * 0.34, 36 * u), R.w * 0.6), pad = 1.6 * u;
-  const alto = dibujarLeyenda(medidor(ctx), { x: 0, w: w - 2 * pad }, 0, R.h * 0.92, u, g, o, prep, 1) + pad;
+  const base = ESC_T;
+  let alto = 0;
+  for (const f of [1, 0.92, 0.85, 0.78, 0.7, 0.64]) {
+    ESC_T = base * f;
+    const r = dibujarLeyenda(medidor(ctx), { x: 0, w: w - 2 * pad }, 0, R.h * 0.7, u, g, o, prep, 1);
+    alto = r.y + pad;
+    if (r.completo) break;
+  }
   const h = Math.min(alto + pad, R.h - 2 * u);
   const pos = o.posLeyenda;
   const x = pos.endsWith("izq") ? R.x + 1.2 * u : R.x + R.w - w - 1.2 * u;
@@ -732,6 +757,7 @@ function dibujarLeyendaEnMapa(ctx, R, u, g, o, prep) {
   ctx.strokeStyle = "#d1d5db"; ctx.lineWidth = 0.1 * u; ctx.strokeRect(x, y, w, h);
   dibujarLeyenda(ctx, { x: x + pad, w: w - 2 * pad }, y + pad, y + h - pad * 0.5, u, g, o, prep, 1);
   ctx.restore();
+  ESC_T = base;
 }
 
 function dibujarMarca(ctx, it, x, y, s, u) {
