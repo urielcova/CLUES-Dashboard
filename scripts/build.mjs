@@ -13,7 +13,7 @@
 //   dist/Dashboard_CLUES_archivo_unico.html         → versión de un solo archivo (sin internet); no se versiona
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import * as esbuild from "esbuild";
 import { dirname, join } from "node:path";
@@ -67,6 +67,13 @@ const datos = { "d-base": "catalogo.json", "d-ent": "entidades.json", "d-mun": "
 const gz = Object.fromEntries(Object.entries(datos).map(([id, f]) => [id, readFileSync(ruta("datos", f + ".gz"))]));
 const huella = createHash("sha256");
 for (const b of [appJs, leafletJs, ...Object.values(gz)]) huella.update(b);
+// capas del Marco Geoestadístico (solo en la versión web; el archivo único no las incluye por tamaño)
+const marco = ["localidades.json.gz", "rurales.json.gz", ...["ageb", "mun"].flatMap((c) => readdirSync(ruta("datos", "marco", c)).sort().map((f) => `${c}/${f}`)),
+  // solo entidades completas (servicios.json.gz se escribe al final de scripts/marco/por_entidad.sh)
+  ...readdirSync(ruta("datos", "marco", "ent")).sort()
+    .filter((e) => readdirSync(ruta("datos", "marco", "ent", e)).includes("servicios.json.gz"))
+    .flatMap((e) => ["manzanas", "calles", "servicios"].map((c) => `ent/${e}/${c}.json.gz`))];
+for (const f of marco) huella.update(readFileSync(ruta("datos", "marco", f)));
 const V = huella.digest("hex").slice(0, 10);
 const inicio = ["d-base", "d-ent", "d-mun", "d-ref"].reduce((s, id) => s + gz[id].length, 0);
 const tamJs = [Buffer.byteLength(leafletJs), Buffer.byteLength(appJs)];

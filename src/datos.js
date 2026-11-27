@@ -114,6 +114,59 @@ export const municipiosGeo = () =>
     })),
   })));
 
+/* Marco Geoestadístico Integrado, Encuesta Intercensal 2025 (INEGI): capas que se cargan solo al pedirlas */
+let _mLoc = null, _mRur = null;
+const _mAgeb = new Map();
+const anillosDe = (g, q) => g.map((rs) => rs.map((f) => { const out = []; let x = f[0], y = f[1]; out.push([x / q, y / q]); for (let i = 2; i < f.length; i += 2) { x += f[i]; y += f[i + 1]; out.push([x / q, y / q]); } return out; }));
+export const marcoLocalidades = () =>
+  (_mLoc ??= gunzipB64(blob("m-loc")).then((L) => {
+    const r = anillosDe(L.g, L.q);
+    return L.n.map((nombre, i) => ({ nombre, urbana: L.a[i] === 1, ent: L.e[i], mun: L.m[i], area: L.ar[i] / 100, lat: L.c[i][0] / L.q, lng: L.c[i][1] / L.q, anillos: r[i] }));
+  }));
+export const marcoRurales = () =>
+  (_mRur ??= gunzipB64(blob("m-rur")).then((R) => {
+    const out = [];
+    let k = 0, j = 0;
+    for (const [ent, n] of R.e) {
+      let y = R.p[k++], x = R.p[k++];
+      out.push([y / R.q, x / R.q, ent, R.m[j++]]);
+      for (let i = 1; i < n; i++) { y += R.p[k++]; x += R.p[k++]; out.push([y / R.q, x / R.q, ent, R.m[j++]]); }
+    }
+    return out;
+  }));
+const _mMun = new Map();
+/* Municipios con más detalle (≈35 m) para mapas estatales y municipales: clave CVEGEO → geometría */
+export const marcoMunDetalle = (cveEnt) => {
+  const id = String(cveEnt).padStart(2, "0");
+  if (!_mMun.has(id))
+    _mMun.set(id, gunzipB64(blob(`m-mun-${id}`)).then((M) => { const r = anillosDe(M.g, M.q); return new Map(M.k.map((k, i) => [k, { type: "MultiPolygon", coordinates: r[i].map((a) => [a]) }])); }).catch((e) => { _mMun.delete(id); throw e; }));
+  return _mMun.get(id);
+};
+/* Detalle por entidad (Marco Geoestadístico completo): manzanas, calles y servicios (agua, carreteras locales, salud) */
+const _mEnt = new Map();
+const lineasDe = (g, q) => g.map((ls) => ls.map((f) => { const out = []; let x = f[0], y = f[1]; out.push([x / q, y / q]); for (let i = 2; i < f.length; i += 2) { x += f[i]; y += f[i + 1]; out.push([x / q, y / q]); } return out; }));
+export const marcoEntidad = (cveEnt, capa) => {
+  const id = `m-ent-${String(cveEnt).padStart(2, "0")}-${capa}`;
+  if (!_mEnt.has(id))
+    _mEnt.set(id, gunzipB64(blob(id)).then((D) => {
+      if (capa === "manzanas") { const r = lineasDe(D.g, D.q); return D.m.map((m, i) => ({ mun: m, urbana: D.u[i] === 1, anillos: r[i] })); }
+      if (capa === "calles") { const r = lineasDe(D.g, D.q); return D.m.map((m, i) => ({ mun: m, tipo: D.tipos[D.t[i]], nombre: D.n[i], lineas: r[i] })); }
+      const li = lineasDe(D.lineas.g, D.lineas.q), ag = lineasDe(D.agua.g, D.agua.q);
+      return {
+        lineas: D.lineas.m.map((m, i) => ({ mun: m, clase: D.lineas.clases[D.lineas.c[i]], lineas: li[i] })),
+        agua: D.agua.m.map((m, i) => ({ mun: m, anillos: ag[i] })),
+        salud: D.salud.m.map((m, i) => ({ mun: m, lat: D.salud.p[i][0] / D.salud.q, lng: D.salud.p[i][1] / D.salud.q, nombre: D.salud.n[i], tipo: D.salud.t[i] })),
+      };
+    }).catch((e) => { _mEnt.delete(id); throw e; }));
+  return _mEnt.get(id);
+};
+export const marcoAgeb = (cveEnt) => {
+  const id = String(cveEnt).padStart(2, "0");
+  if (!_mAgeb.has(id))
+    _mAgeb.set(id, gunzipB64(blob(`m-ageb-${id}`)).then((A) => { const r = anillosDe(A.g, A.q); return A.u.map((u, i) => ({ urbana: u === 1, mun: A.m[i], anillos: r[i] })); }).catch((e) => { _mAgeb.delete(id); throw e; }));
+  return _mAgeb.get(id);
+};
+
 /* Detalles (dirección, teléfono, tipología, horarios, servicios): se descomprimen la primera vez que se abre una ficha */
 export let _detallesPromesa = null;
 export const fijarDetalles = (p) => { _detallesPromesa = p; };

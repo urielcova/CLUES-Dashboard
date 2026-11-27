@@ -70,9 +70,11 @@ export function preparar(g, o) {
   const { entFC, munFC, unidades, selEnt, selMun, jurPorMun, seleccion } = g;
   const setEnt = new Set(selEnt.map((e) => fold(e)));
   const setMun = new Set(selMun.map((k) => fold(k)));
-  const munsEstudio = munFC.features.filter((f) =>
+  let munsEstudio = munFC.features.filter((f) =>
     setMun.size ? setMun.has(claveMun(f.properties.ent, f.properties.mun)) : setEnt.size ? setEnt.has(fold(f.properties.ent)) : true
   );
+  // Límites con más detalle (Marco Geoestadístico ≈35 m) cuando ya se cargaron para estas entidades
+  if (g.munDet?.size) munsEstudio = munsEstudio.map((f) => (g.munDet.has(f.properties.key) ? { ...f, geometry: g.munDet.get(f.properties.key) } : f));
   const entsConMun = new Set(munsEstudio.map((f) => fold(f.properties.ent)));
   const entEstudio = entFC.features.filter((f) => (setEnt.size || setMun.size ? entsConMun.has(fold(f.properties.ent)) : true));
   const nacional = !setEnt.size && !setMun.size;
@@ -163,7 +165,36 @@ export function preparar(g, o) {
     segJur = [...borde.values()];
   }
 
-  return { munsEstudio, entEstudio, nacional, puntos, bbox, relleno, leyendaMun, tituloMun, jurs, conteo, setEnt, setMun, segJur };
+  // Servicios de salud del Marco Geoestadístico: ¿hay una unidad CLUES a ≤ radio metros?
+  let saludComp = null;
+  if (o.det?.salud && o.det.salud !== "no" && g.marco?.det) {
+    const enEst = new Set(munsEstudio.map((f) => f.properties.key));
+    const celda = 0.01, rejilla = new Map();
+    for (const u of g.unidades) {
+      if (u.LATITUD == null) continue;
+      const k = `${Math.floor(u.LATITUD / celda)},${Math.floor(u.LONGITUD / celda)}`;
+      if (!rejilla.has(k)) rejilla.set(k, []);
+      rejilla.get(k).push(u);
+    }
+    const radio = (o.det.radio || 300) / 1000;
+    saludComp = [];
+    for (const [ent, d] of g.marco.det)
+      for (const sv of d.servicios?.salud || []) {
+        if (!enEst.has(`${String(ent).padStart(2, "0")}${String(sv.mun).padStart(3, "0")}`)) continue;
+        let mejor = Infinity, cercana = null;
+        const ci = Math.floor(sv.lat / celda), cj = Math.floor(sv.lng / celda);
+        for (let a = -1; a <= 1; a++)
+          for (let b = -1; b <= 1; b++)
+            for (const u of rejilla.get(`${ci + a},${cj + b}`) || []) {
+              const dy = (u.LATITUD - sv.lat) * 111.32, dx = (u.LONGITUD - sv.lng) * 111.32 * Math.cos((sv.lat * Math.PI) / 180);
+              const dk = Math.hypot(dx, dy);
+              if (dk < mejor) { mejor = dk; cercana = u; }
+            }
+        saludComp.push({ ...sv, ent, con: mejor <= radio, km: mejor, cercana });
+      }
+  }
+
+  return { munsEstudio, entEstudio, nacional, puntos, bbox, relleno, leyendaMun, tituloMun, jurs, conteo, setEnt, setMun, segJur, saludComp };
 }
 
 /* ---------------- Utilidades de dibujo ---------------- */
@@ -331,13 +362,90 @@ function dibujarMapa(ctx, R, u, g, o, prep, esquinaLeyenda) {
     if (o.bordesMun) { trazarFeatures(ctx, prep.munsEstudio, pr); ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = lw; ctx.stroke(); }
   }
 
-  // 2b) Capas de referencia (Natural Earth): zonas urbanas, agua y carreteras
+  // 2b) Marco Geoestadístico (INEGI): AGEB y localidades; Natural Earth: agua y carreteras
   const ref = o.ref || {};
-  if (g.ref) {
-    if (ref.urbano) {
-      trazarFeatures(ctx, g.ref.urbano.features, pr);
-      ctx.globalAlpha = 0.55; ctx.fillStyle = "#8b7f73"; ctx.fill(); ctx.globalAlpha = 1;
+  const mz = g.marco || {};
+  const enEstudio = prep.nacional ? null : new Set(prep.munsEstudio.map((f) => f.properties.key));
+  const claveLoc = (e, m) => `${String(e).padStart(2, "0")}${String(m).padStart(3, "0")}`;
+  const [ba, bb, bc, bd] = bbox;
+  const visible = (lat, lng, mg = 0.3) => lng >= ba - mg && lng <= bc + mg && lat >= bb - mg && lat <= bd + mg;
+  if (ref.ageb && ref.ageb !== "no" && mz.ageb) {
+    ctx.beginPath();
+    for (const [ent, lista] of mz.ageb)
+      for (const a of lista) {
+        if (ref.ageb === "urbanas" && !a.urbana) continue;
+        if (enEstudio && !enEstudio.has(claveLoc(ent, a.mun))) continue;
+        trazarAnillos(ctx, a.anillos, pr, false);
+      }
+    ctx.strokeStyle = ref.ageb === "urbanas" ? "rgba(55,65,81,0.55)" : "rgba(55,65,81,0.4)";
+    ctx.lineWidth = 0.07 * u;
+    ctx.stroke();
+  }
+  if (ref.locPoligonos && ref.locPoligonos !== "no" && mz.loc) {
+    for (const urb of ref.locPoligonos === "todas" ? [false, true] : [true]) {
+      ctx.beginPath();
+      const kmPx = pr.s / 111.32; // px por km
+      for (const l of mz.loc) {
+        if (l.urbana !== urb || !visible(l.lat, l.lng)) continue;
+        if (enEstudio && !enEstudio.has(claveLoc(l.ent, l.mun))) continue;
+        const lado = Math.sqrt(l.area) * kmPx;
+        if (lado < 1.5) { const [x, y] = pr(l.lng, l.lat); const t = Math.max(0.7, lado); ctx.rect(x - t / 2, y - t / 2, t, t); continue; }
+        trazarAnillos(ctx, l.anillos, pr, true);
+      }
+      ctx.globalAlpha = urb ? 0.6 : 0.45;
+      ctx.fillStyle = urb ? "#7c6f64" : "#a8998a";
+      ctx.fill();
+      ctx.globalAlpha = 1;
     }
+  }
+  if (ref.rurales && mz.rur) {
+    const r = 0.16 * u;
+    ctx.beginPath();
+    for (const [la, lo, e, m] of mz.rur) {
+      if (enEstudio && !enEstudio.has(claveLoc(e, m))) continue;
+      if (lo < ba || lo > bc || la < bb || la > bd) continue;
+      const [x, y] = pr(lo, la);
+      ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, Math.PI * 2);
+    }
+    ctx.fillStyle = "#57534e";
+    ctx.fill();
+  }
+  // 2c) Detalle por entidad (Marco Geoestadístico completo): manzanas, agua, calles, carreteras locales
+  const det = o.det || {};
+  if (mz.det) {
+    const dentro = (ent, mun) => !enEstudio || enEstudio.has(claveLoc(ent, mun));
+    if (det.manzanas && det.manzanas !== "no") {
+      ctx.beginPath();
+      for (const [ent, d] of mz.det) for (const m of d.manzanas || []) if ((det.manzanas === "todas" || m.urbana) && dentro(ent, m.mun)) trazarAnillos(ctx, m.anillos, pr, true, 0.5);
+      ctx.fillStyle = "#d6cdbf"; ctx.fill();
+      if (pr.s > 2000) { ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = 0.05 * u; ctx.stroke(); }
+    }
+    if (det.agua) {
+      ctx.beginPath();
+      for (const [ent, d] of mz.det) for (const a of d.servicios?.agua || []) if (dentro(ent, a.mun)) trazarAnillos(ctx, a.anillos, pr, true, 0.5);
+      ctx.fillStyle = "#a9cde3"; ctx.fill();
+      ctx.beginPath();
+      for (const [ent, d] of mz.det) for (const l of d.servicios?.lineas || []) if ((l.clase === "Corriente de Agua" || l.clase === "Canal") && dentro(ent, l.mun)) trazarAnillos(ctx, l.lineas, pr, false, 0.5, true);
+      ctx.strokeStyle = "#6fa8d0"; ctx.lineWidth = 0.1 * u; ctx.lineCap = "round"; ctx.stroke();
+    }
+    if (det.calles && det.calles !== "no") {
+      const PRINC = /^(Avenida|Boulevard|Calzada|Carretera|Periférico|Viaducto|Eje Vial|Circunvalación|Libramiento|Autopista)$/;
+      for (const princ of det.calles === "todas" ? [false, true] : [true]) {
+        ctx.beginPath();
+        for (const [ent, d] of mz.det) for (const c of d.calles || []) if (PRINC.test(c.tipo) === princ && dentro(ent, c.mun)) trazarAnillos(ctx, c.lineas, pr, false, 0.5, true);
+        ctx.strokeStyle = princ ? "#7a6e63" : "#b7aea3"; ctx.lineWidth = (princ ? 0.16 : 0.06) * u; ctx.lineCap = "round"; ctx.stroke();
+      }
+    }
+    if (det.carreteras) {
+      const estilo = { Carretera: ["#c2410c", 0.2, []], Camino: ["#92735a", 0.1, [0.6, 0.5]], "Vía Férrea": ["#1f2937", 0.12, [0.9, 0.5]] };
+      for (const [clase, [col, gr, dash]] of Object.entries(estilo)) {
+        ctx.beginPath();
+        for (const [ent, d] of mz.det) for (const l of d.servicios?.lineas || []) if (l.clase === clase && dentro(ent, l.mun)) trazarAnillos(ctx, l.lineas, pr, false, 0.5, true);
+        ctx.setLineDash(dash.map((x) => x * u)); ctx.strokeStyle = col; ctx.lineWidth = gr * u; ctx.stroke(); ctx.setLineDash([]);
+      }
+    }
+  }
+  if (g.ref) {
     if (ref.agua) {
       trazarFeatures(ctx, g.ref.lagos.features, pr);
       ctx.fillStyle = "#a9cde3"; ctx.fill();
@@ -447,25 +555,75 @@ function dibujarMapa(ctx, R, u, g, o, prep, esquinaLeyenda) {
     }
   }
 
-  // 5b) Localidades principales (por número de unidades en el catálogo)
-  if (g.ref && ref.localidades) {
-    const [a, b, c, d] = bbox;
-    const ents = prep.nacional ? null : new Set(prep.munsEstudio.map((f) => fold(f.properties.ent)));
-    const locs = g.ref.localidades.filter(([la, lo, , , e]) => lo >= a && lo <= c && la >= b && la <= d && (!ents || ents.has(fold(e)))).sort((x, y) => y[2] - x[2]).slice(0, ref.localidadesN || 12);
-    ctx.font = fuente(1.45 * u, 600);
+  // 5b) Localidades principales (Marco Geoestadístico: las de mayor superficie amanzanada), sin encimarse
+  if (ref.localidades && mz.loc) {
+    const cand = mz.loc
+      .filter((l) => (ref.localidadesRurales || l.urbana) && l.lng >= ba && l.lng <= bc && l.lat >= bb && l.lat <= bd && (!enEstudio || enEstudio.has(claveLoc(l.ent, l.mun))))
+      .sort((x, y) => y.area - x.area);
+    const fs = 1.45 * u;
+    ctx.font = fuente(fs, 600);
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    for (const [la, lo, , nombre] of locs) {
-      const [x, y] = pr(lo, la);
-      ctx.beginPath(); ctx.arc(x, y, 0.5 * u, 0, Math.PI * 2);
-      ctx.fillStyle = "#111827"; ctx.fill(); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 0.18 * u; ctx.stroke();
-      textoHalo(ctx, titleCase(nombre), x + 0.9 * u, y, 1.45 * u, "#111827");
+    const puestos = [];
+    let n = 0;
+    for (const l of cand) {
+      if (n >= (ref.localidadesN || 12)) break;
+      const [x, y] = pr(l.lng, l.lat);
+      if (x < R.x || x > R.x + R.w || y < R.y || y > R.y + R.h) continue;
+      const w = ctx.measureText(l.nombre).width + 1.4 * u, h = fs * 1.4;
+      const caja = [x - 0.7 * u, y - h / 2, x + w, y + h / 2];
+      if (puestos.some((q) => caja[0] < q[2] && caja[2] > q[0] && caja[1] < q[3] && caja[3] > q[1])) continue;
+      puestos.push(caja);
+      n++;
+      ctx.beginPath(); ctx.arc(x, y, 0.45 * u, 0, Math.PI * 2);
+      ctx.fillStyle = "#111827"; ctx.fill(); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 0.16 * u; ctx.stroke();
+      textoHalo(ctx, l.nombre, x + 0.9 * u, y, fs, "#111827");
+    }
+  }
+
+  // 5c) Nombres de vialidades principales (Marco Geoestadístico), sin encimarse
+  if (mz.det && det.nombresCalles) {
+    const vistos = new Set(), puestos = [];
+    const fs = 1.2 * u;
+    ctx.font = fuente(fs, 600); ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    const lista = [];
+    for (const [ent, d] of mz.det) for (const c of d.calles || []) if (c.nombre && (!enEstudio || enEstudio.has(claveLoc(ent, c.mun)))) lista.push(c);
+    for (const c of lista) {
+      if (puestos.length > 60) break;
+      const k = c.nombre.toLowerCase();
+      if (vistos.has(k)) continue;
+      const l = c.lineas[0];
+      if (!l || l.length < 2) continue;
+      const m = l[Math.floor(l.length / 2)];
+      const [x, y] = pr(m[0], m[1]);
+      if (x < R.x || x > R.x + R.w || y < R.y || y > R.y + R.h) continue;
+      const w = ctx.measureText(c.nombre).width, caja = [x - w / 2 - u, y - fs, x + w / 2 + u, y + fs];
+      if (puestos.some((q) => caja[0] < q[2] && caja[2] > q[0] && caja[1] < q[3] && caja[3] > q[1])) continue;
+      puestos.push(caja); vistos.add(k);
+      textoHalo(ctx, c.nombre, x, y, fs, "#57534e");
+    }
+  }
+  if (prep.saludComp) {
+    const r = Math.max(0.7 * u, o.puntos.tam * u * 0.13);
+    for (const con of [true, false]) {
+      if (o.det.salud === "comparar" ? false : !con) continue;
+      ctx.beginPath();
+      for (const sv of prep.saludComp) {
+        if (o.det.salud === "comparar" && sv.con !== con) continue;
+        const [x, y] = pr(sv.lng, sv.lat);
+        // cruz de servicio de salud
+        const a = r, b = r * 0.38;
+        ctx.moveTo(x - b, y - a); ctx.lineTo(x + b, y - a); ctx.lineTo(x + b, y - b); ctx.lineTo(x + a, y - b); ctx.lineTo(x + a, y + b); ctx.lineTo(x + b, y + b);
+        ctx.lineTo(x + b, y + a); ctx.lineTo(x - b, y + a); ctx.lineTo(x - b, y + b); ctx.lineTo(x - a, y + b); ctx.lineTo(x - a, y - b); ctx.lineTo(x - b, y - b); ctx.closePath();
+      }
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = r * 0.35; ctx.stroke();
+      ctx.fillStyle = o.det.salud !== "comparar" ? "#7c3aed" : con ? "#15803d" : "#dc2626"; ctx.fill();
     }
   }
 
   // 6) Establecimientos seleccionados (encima de todo)
   if (seleccion.length) {
-    const rs = Math.max(1.7 * u, o.puntos.tam * u * 0.24);
+    const rs = Math.max(1.7 * u, o.puntos.tam * u * 0.24) * (o.tamSel || 1) * (o.etiquetaSel === "numero" ? 1 : 0.8);
     seleccion.forEach((p, i) => {
       if (p.LATITUD == null) return;
       const [x, y] = pr(p.LONGITUD, p.LATITUD);
@@ -482,7 +640,7 @@ function dibujarMapa(ctx, R, u, g, o, prep, esquinaLeyenda) {
         ctx.textAlign = "center";
         ctx.fillStyle = esOscuro(o.colorSel) ? "#ffffff" : "#111827";
         ctx.fillText(String(i + 1), x, y + rs * 0.05);
-      } else {
+      } else if (o.etiquetaSel !== "ninguna") {
         ctx.font = fuente(1.55 * u, 700);
         ctx.textAlign = "left";
         textoHalo(ctx, o.etiquetaSel === "clues" ? p.CLUES : titleCase(p["NOMBRE DE LA UNIDAD"]), x + rs * 1.5, y, 1.55 * u, "#111827");
@@ -500,6 +658,21 @@ function dibujarMapa(ctx, R, u, g, o, prep, esquinaLeyenda) {
   return pr;
 }
 
+/* Traza anillos omitiendo vértices a menos de «tol» px del anterior (a escala nacional hay millones bajo un píxel) */
+function trazarAnillos(ctx, anillos, pr, cerrar, tol = 0.6, abierta = false) {
+  const t2 = tol * tol;
+  for (const r of anillos) {
+    let [px, py] = pr(r[0][0], r[0][1]);
+    const [x0, y0] = [px, py];
+    ctx.moveTo(px, py);
+    for (let i = 1; i < r.length; i++) {
+      const [x, y] = pr(r[i][0], r[i][1]);
+      if ((x - px) * (x - px) + (y - py) * (y - py) < t2) continue;
+      ctx.lineTo(x, y); px = x; py = y;
+    }
+    if (cerrar) ctx.closePath(); else if (!abierta) ctx.lineTo(x0, y0);
+  }
+}
 function trazarLineas(ctx, features, pr) {
   ctx.beginPath();
   for (const f of features)
@@ -616,7 +789,22 @@ function dibujarInset(ctx, R, u, g, o, prep) {
 }
 
 /* Leyenda + mapa de ubicación + notas */
+/* Panel: si la leyenda o las notas no caben, se reduce el texto (hasta 60 %) en lugar de recortar */
 function dibujarPanel(ctx, P, u, g, o, prep, conLeyenda) {
+  const base = ESC_T;
+  let elegido = 0.6;
+  for (const f of [1, 0.92, 0.85, 0.78, 0.7, 0.64]) {
+    ESC_T = base * f;
+    const r = panelInterno(medidor(ctx), P, u, g, o, prep, conLeyenda);
+    if (r.completo) { elegido = f; break; }
+  }
+  ESC_T = base * elegido;
+  panelInterno(ctx, P, u, g, o, prep, conLeyenda);
+  ESC_T = base;
+}
+
+function panelInterno(ctx, P, u, g, o, prep, conLeyenda) {
+  let completo = true;
   const lateral = P.tipo === "lateral";
   let colL, colR;
   if (lateral) colL = colR = { x: P.x, w: P.w };
@@ -646,7 +834,7 @@ function dibujarPanel(ctx, P, u, g, o, prep, conLeyenda) {
   const altoNotas = lineasNotas.reduce((t, l) => t + altoLinea(l), 0);
   const limiteLeyenda = lateral ? limite - altoNotas - u : limite;
 
-  if (o.elementos.leyenda && conLeyenda) dibujarLeyenda(ctx, colL, y, limiteLeyenda, u, g, o, prep, lateral ? (colL.w > 30 * u ? 2 : 1) : 3);
+  if (o.elementos.leyenda && conLeyenda) completo = dibujarLeyenda(ctx, colL, y, limiteLeyenda, u, g, o, prep, lateral ? (colL.w > 30 * u ? 2 : 1) : 3).completo;
 
   if (lineasNotas.length) {
     let yn = lateral ? limite - altoNotas : yR;
@@ -656,11 +844,12 @@ function dibujarPanel(ctx, P, u, g, o, prep, conLeyenda) {
       const [l, negrita] = ln;
       ctx.font = fuente(negrita ? fs * 1.15 : fs, negrita ? 700 : 400);
       ctx.fillStyle = negrita ? "#111827" : "#374151";
-      if (yn + fs * ESC_T > limite) break;
+      if (l && yn + fs * ESC_T > limite) { completo = false; break; }
       if (l) ctx.fillText(l, colR.x, yn);
       yn += altoLinea(ln);
     }
   }
+  return { completo };
 }
 
 /* Leyenda en una columna (x, w) desde y hasta limite; devuelve la altura final */
@@ -675,8 +864,9 @@ function dibujarLeyenda(ctx, colL, y, limiteLeyenda, u, g, o, prep, maxCols) {
   // ¿cabe todo en una columna? si no, las secciones largas usan las columnas disponibles
   const altoSec = (s, c) => fl * 1.4 * ESC_T + 0.4 * u + Math.ceil(s.items.length / c) * paso + 1.6 * u;
   const unaCol = secciones.reduce((t, s) => t + altoSec(s, 1), 0) <= limiteLeyenda - y;
+  let completo = true;
   for (const s of secciones) {
-    if (y + paso * 2 > limiteLeyenda) break;
+    if (y + paso * 2 > limiteLeyenda) { completo = false; break; }
     ctx.font = fuente(fl * 1.12, 700);
     ctx.fillStyle = "#1f2937";
     ctx.textBaseline = "top";
@@ -686,6 +876,7 @@ function dibujarLeyenda(ctx, colL, y, limiteLeyenda, u, g, o, prep, maxCols) {
     const cols = Math.min(maxCols, Math.max(unaCol || s.items.length <= 3 ? 1 : maxCols, Math.ceil(s.items.length / filas)));
     const cabe = filas * cols;
     const items = s.items.length > cabe && cabe > 1 ? [...s.items.slice(0, cabe - 1), { texto: `… y ${s.items.length - cabe + 1} más`, sinMarca: true }] : s.items;
+    if (items !== s.items) completo = false;
     const porCol = Math.ceil(items.length / cols), anchoCol = colL.w / cols;
     items.forEach((it, i) => {
       const cx = colL.x + Math.floor(i / porCol) * anchoCol, cy = y + (i % porCol) * paso;
@@ -703,7 +894,7 @@ function dibujarLeyenda(ctx, colL, y, limiteLeyenda, u, g, o, prep, maxCols) {
     });
     y += porCol * paso + 1.6 * u;
   }
-  return y;
+  return { y, completo };
 }
 
 /* Contexto que solo mide (para calcular la altura de la leyenda antes de dibujarla) */
@@ -721,7 +912,14 @@ function medidor(real) {
 
 function dibujarLeyendaEnMapa(ctx, R, u, g, o, prep) {
   const w = Math.min(Math.max(R.w * 0.34, 36 * u), R.w * 0.6), pad = 1.6 * u;
-  const alto = dibujarLeyenda(medidor(ctx), { x: 0, w: w - 2 * pad }, 0, R.h * 0.92, u, g, o, prep, 1) + pad;
+  const base = ESC_T;
+  let alto = 0;
+  for (const f of [1, 0.92, 0.85, 0.78, 0.7, 0.64]) {
+    ESC_T = base * f;
+    const r = dibujarLeyenda(medidor(ctx), { x: 0, w: w - 2 * pad }, 0, R.h * 0.7, u, g, o, prep, 1);
+    alto = r.y + pad;
+    if (r.completo) break;
+  }
   const h = Math.min(alto + pad, R.h - 2 * u);
   const pos = o.posLeyenda;
   const x = pos.endsWith("izq") ? R.x + 1.2 * u : R.x + R.w - w - 1.2 * u;
@@ -732,6 +930,7 @@ function dibujarLeyendaEnMapa(ctx, R, u, g, o, prep) {
   ctx.strokeStyle = "#d1d5db"; ctx.lineWidth = 0.1 * u; ctx.strokeRect(x, y, w, h);
   dibujarLeyenda(ctx, { x: x + pad, w: w - 2 * pad }, y + pad, y + h - pad * 0.5, u, g, o, prep, 1);
   ctx.restore();
+  ESC_T = base;
 }
 
 function dibujarMarca(ctx, it, x, y, s, u) {
@@ -745,6 +944,14 @@ function dibujarMarca(ctx, it, x, y, s, u) {
   if (it.gradiente) {
     const n = it.gradiente.length, cw = (s * 2.4) / n;
     it.gradiente.forEach((c, i) => { ctx.fillStyle = c; ctx.fillRect(x + i * cw, y + s * 0.15, cw + 0.3, s * 0.7); });
+    return;
+  }
+  if (it.cruz) {
+    const cx = x + s / 2, cy = y + s / 2, a = s * 0.36, b = a * 0.38;
+    ctx.beginPath();
+    ctx.moveTo(cx - b, cy - a); ctx.lineTo(cx + b, cy - a); ctx.lineTo(cx + b, cy - b); ctx.lineTo(cx + a, cy - b); ctx.lineTo(cx + a, cy + b); ctx.lineTo(cx + b, cy + b);
+    ctx.lineTo(cx + b, cy + a); ctx.lineTo(cx - b, cy + a); ctx.lineTo(cx - b, cy + b); ctx.lineTo(cx - a, cy + b); ctx.lineTo(cx - a, cy - b); ctx.lineTo(cx - b, cy - b); ctx.closePath();
+    ctx.fillStyle = it.cruz; ctx.fill();
     return;
   }
   if (it.punto) {
@@ -784,11 +991,33 @@ export function seccionesLeyenda(g, o, prep, conTextos = false) {
   const u = 1;
   const extra = [];
   if (prep.segJur && o.contornoJur?.ver) extra.push({ linea: o.contornoJur.color || "#111827", grosor: Math.max(1, (o.contornoJur.grosor || 3) * 0.6), texto: "Límite de jurisdicción sanitaria" });
+  if (o.ref) {
+    const mz = g.marco || {};
+    if (mz.loc && o.ref.locPoligonos === "urbanas") extra.push({ color: "#7c6f64", alpha: 0.6, texto: "Localidades urbanas" });
+    if (mz.loc && o.ref.locPoligonos === "todas") { extra.push({ color: "#7c6f64", alpha: 0.6, texto: "Localidades urbanas" }); extra.push({ color: "#a8998a", alpha: 0.45, texto: "Localidades rurales amanzanadas" }); }
+    if (mz.rur && o.ref.rurales) extra.push({ punto: "#57534e", texto: "Localidades rurales (puntuales)" });
+    if (mz.ageb && o.ref.ageb && o.ref.ageb !== "no") extra.push({ linea: "#6b7280", grosor: 1, texto: o.ref.ageb === "urbanas" ? "AGEB urbanas" : "AGEB urbanas y rurales" });
+    if (mz.loc && o.ref.localidades) extra.push({ punto: "#111827", texto: "Localidades principales" });
+    const d = o.det || {};
+    if (mz.det) {
+      if (d.manzanas && d.manzanas !== "no") extra.push({ color: "#d6cdbf", texto: "Manzanas" });
+      if (d.calles && d.calles !== "no") extra.push({ linea: "#7a6e63", grosor: 2, texto: d.calles === "todas" ? "Calles y vialidades principales" : "Vialidades principales" });
+      if (d.carreteras) { extra.push({ linea: "#c2410c", grosor: 2.5, texto: "Carreteras (INEGI)" }); extra.push({ linea: "#92735a", grosor: 1.5, texto: "Caminos y terracerías" }); }
+      if (d.agua) extra.push({ linea: "#6fa8d0", grosor: 2, texto: "Corrientes y cuerpos de agua (INEGI)" });
+    }
+  }
   if (g.ref && o.ref) {
     if (o.ref.carreteras === "principales" || o.ref.carreteras === "todas") extra.push({ linea: "#d9622b", grosor: 3, casco: true, texto: o.ref.carreteras === "todas" ? "Carreteras" : "Carreteras principales" });
     if (o.ref.agua) extra.push({ linea: "#7fb3d5", grosor: 2.5, texto: "Ríos y cuerpos de agua" });
-    if (o.ref.urbano) extra.push({ color: "#8b7f73", alpha: 0.55, texto: "Zonas urbanas" });
-    if (o.ref.localidades) extra.push({ punto: "#111827", texto: "Localidades principales" });
+  }
+  if (prep.saludComp) {
+    if (o.det.salud === "comparar") {
+      const sin = prep.saludComp.filter((x) => !x.con).length;
+      sec.push({ titulo: `Servicios de salud del Marco Geoestadístico (${fmtN(prep.saludComp.length)})`, items: [
+        { cruz: "#15803d", texto: `Con unidad CLUES a ${o.det.radio || 300} m o menos (${fmtN(prep.saludComp.length - sin)})` },
+        { cruz: "#dc2626", texto: `Sin unidad CLUES cercana (${fmtN(sin)})` },
+      ] });
+    } else extra.push({ cruz: "#7c3aed", texto: `Servicios de salud del Marco Geoestadístico (${fmtN(prep.saludComp.length)})` });
   }
   if (o.calor?.ver && prep.puntos.length) extra.push({ gradiente: rampa(paletaSec(o.calor.paleta || "ylorrd").c, 6).slice(1), texto: "Densidad de unidades (baja → alta)" });
   if (o.cobertura?.ver) extra.push({ color: o.cobertura.color || "#0284c7", alpha: Math.max(0.25, o.cobertura.opacidad ?? 0.3), texto: `A ${o.cobertura.km} km o menos de ${o.cobertura.de === "seleccion" ? "un establecimiento de interés" : o.cobertura.de === "nivel23" ? "una unidad de 2.º o 3.er nivel" : "una unidad"}` });
@@ -840,7 +1069,9 @@ function notasTexto(g, o, prep) {
   if (!prep.nacional && ents.length > 1 && ents.length <= 12) out.push([`Entidades: ${ents.join(", ")}`, false]);
   if (g.filtrosTexto) out.push([`Filtros: ${g.filtrosTexto}`, false]);
   if (o.notas) out.push([o.notas, false]);
-  out.push([`Fuente: DGIS, Catálogo CLUES (corte ${g.corte}); INEGI, Marco Geoestadístico 2025. SRC: EPSG:4326 – WGS 84.`, false]);
+  const ne = o.ref && (o.ref.agua || (o.ref.carreteras && o.ref.carreteras !== "no")) ? "; Natural Earth (carreteras y agua)" : "";
+  if (prep.saludComp && o.det.salud === "comparar") out.push([`Comparación: servicios de salud del Marco Geoestadístico contra unidades CLUES del filtro, a ${o.det.radio || 300} m en línea recta.`, false]);
+  out.push([`Fuente: DGIS, Catálogo CLUES (corte ${g.corte}); INEGI, Marco Geoestadístico Integrado, Encuesta Intercensal 2025${ne}. SRC: EPSG:4326 – WGS 84.`, false]);
   return out;
 }
 
