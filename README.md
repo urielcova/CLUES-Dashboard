@@ -9,6 +9,7 @@ Tablero interactivo del Catálogo de Clave Única de Establecimientos de Salud (
 - Mapa con botón «Ver CLUES en esta zona», sombreado fuera del filtro y «Encontrar CLUES más cercana».
 - Ficha por unidad con indicaciones en Google Maps.
 - Panel **Catálogo** para revisar y cargar un archivo nuevo (clic o arrastrar).
+- Pestaña **Exportar mapa** para presentaciones con los filtros activos: formatos 16:9, 4:3, cuadrado, vertical y carta; concentración de unidades por municipio (conteo o densidad, cuantiles / Jenks / intervalos iguales) o jurisdicciones sanitarias; paletas institucionales y por padecimiento; tamaño, color y forma de los puntos; establecimientos de interés numerados; leyenda, mapa de ubicación, norte, escala y fuente. Descarga en PNG (hasta 3×) o SVG editable, o copia directa al portapapeles.
 
 ## Archivos
 | Ruta | Contenido |
@@ -16,6 +17,7 @@ Tablero interactivo del Catálogo de Clave Única de Establecimientos de Salud (
 | `src/main.jsx`, `src/App.jsx` | Punto de entrada y carga del catálogo (publicado o subido) |
 | `src/Dashboard.jsx` | Tablero: filtros, resumen, mapa, lista y exportación |
 | `src/mapa/` | Mapa Leaflet (`MapaClues.jsx`), capa de puntos en canvas y popups |
+| `src/exportar/` | Pestaña «Exportar mapa»: composición (`componer.js`), paletas, clasificación y salida SVG |
 | `src/componentes/` | Controles (`ui.jsx`), ficha de la unidad y panel de catálogo |
 | `src/datos.js`, `src/util.js` | Lectura de los datos comprimidos y utilidades (distancias, horarios, CSV, IndexedDB) |
 | `src/instituciones.jsx`, `src/estilos.js` | Instituciones, colores, logos y estilos propios |

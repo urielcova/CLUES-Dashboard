@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Hospital, LocateFixed, Filter, RotateCcw, X, Crosshair, Database, Search, AlertTriangle, Loader2, Navigation, MousePointerClick, MapPinOff, ChevronDown, ChevronRight, Route, Map as MapIcon, Target, FileText, ShieldCheck, Download, UploadCloud, Home, List as ListIcon, Eye } from "lucide-react";
+import { Hospital, LocateFixed, Filter, RotateCcw, X, Crosshair, Database, Search, AlertTriangle, Loader2, Navigation, MousePointerClick, MapPinOff, ChevronDown, ChevronRight, Route, Map as MapIcon, Target, FileText, ShieldCheck, Download, UploadCloud, Home, List as ListIcon, Eye, Presentation } from "lucide-react";
+import { ExportarMapa } from "./exportar/ExportarMapa";
 import { CatalogoPanel } from "./componentes/CatalogoPanel";
 import { FichaUnidad } from "./componentes/FichaUnidad";
 import { MultiSelect, UnidadCard, resumenSel } from "./componentes/ui";
@@ -146,6 +147,11 @@ export function Dashboard({ data, L, leafletStatus, catalogo, onAplicarCatalogo,
     [data, setE, setM, setI, setN, calidadesSel, q]
   );
   useEffect(() => setVisibles(PAGE), [filtrados]);
+  const filtrosTexto = [
+    selInst.length ? (selInst.length <= 3 ? selInst.map((i) => instInfo(i).sigla).join(", ") : `${selInst.length} instituciones`) : "",
+    selNiv.length && selNiv.length < 3 ? selNiv.map((n) => titleCase(n)).join(" y ") : "",
+    texto.trim() ? `búsqueda «${texto.trim()}»` : "",
+  ].filter(Boolean).join(" · ");
 
   // Distancias (Haversine) desde la ubicación del usuario
   const distancias = useMemo(() => {
@@ -499,7 +505,7 @@ export function Dashboard({ data, L, leafletStatus, catalogo, onAplicarCatalogo,
         <main className={`${vista === "filtros" ? "hidden lg:block" : ""} min-w-0 space-y-5`}>
           {/* --- Pestañas (computadora) --- */}
           <div className="hidden gap-1 rounded-2xl bg-white p-1.5 shadow-[0_6px_24px_-8px_rgba(60,20,35,0.18)] lg:flex" role="tablist">
-            {[["resumen", "Resumen", Home, ""], ["mapa", "Mapa", MapIcon, zona ? `${fmtN(enZona.length)} en la zona` : ""], ["lista", "Lista", ListIcon, fmtN(lista.length)]].map(([k, t, Ic, extra]) => (
+            {[["resumen", "Resumen", Home, ""], ["mapa", "Mapa", MapIcon, zona ? `${fmtN(enZona.length)} en la zona` : ""], ["lista", "Lista", ListIcon, fmtN(lista.length)], ["exportar", "Exportar mapa", Presentation, ""]].map(([k, t, Ic, extra]) => (
               <button key={k} role="tab" aria-selected={vistaMain === k} onClick={() => irA(k)} className="flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition" style={vistaMain === k ? { background: C.guinda, color: "#fff" } : { color: C.guinda }}>
                 <Ic style={{ width: 17, height: 17 }} /> {t}
                 {extra && <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={vistaMain === k ? { background: "rgba(255,255,255,0.2)" } : { background: "#f4ebe7" }}>{extra}</span>}
@@ -565,6 +571,11 @@ export function Dashboard({ data, L, leafletStatus, catalogo, onAplicarCatalogo,
                   <ChevronRight style={{ width: 17, height: 17 }} />
                 </button>
               )}
+              <button onClick={() => irA("exportar")} className="flex w-full items-center gap-2.5 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-left text-sm font-semibold hover:bg-white/15">
+                <Presentation className="shrink-0" style={{ width: 17, height: 17 }} />
+                <span className="flex-1">Exportar un mapa para presentación con esta selección</span>
+                <ChevronRight style={{ width: 17, height: 17 }} />
+              </button>
               <button onClick={() => setPanelCatalogo(true)} className="flex w-full items-center gap-2.5 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-left text-sm font-semibold hover:bg-white/15">
                 <UploadCloud className="shrink-0" style={{ width: 17, height: 17 }} />
                 <span className="flex-1">¿Hay un catálogo nuevo de la DGIS? Súbelo para revisar los cambios</span>
@@ -845,6 +856,10 @@ export function Dashboard({ data, L, leafletStatus, catalogo, onAplicarCatalogo,
                 <ChevronDown className="h-4 w-4" style={{ width: 16, height: 16 }} /> Mostrar más ({fmtN(lista.length - visibles)} restantes)
               </button>
             )}
+          </section>
+
+          <section className={vistaMain === "exportar" ? "" : "hidden"} aria-label="Exportar mapa para presentación">
+            <ExportarMapa data={data} filtrados={filtrados} selEnt={selEnt} selMun={selMun} corte={catalogo.corte} filtrosTexto={filtrosTexto} activa={vistaMain === "exportar"} />
           </section>
 
           <footer className={`${vistaMain === "mapa" ? "hidden" : ""} pb-4 pt-2 text-[11px] leading-relaxed text-neutral-500`}>
