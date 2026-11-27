@@ -19,5 +19,7 @@ ms "${NN}e"   -simplify interval=4 -filter-fields CVE_MUN,TIPOVIAL,NOMVIAL -o "$
 ms "${NN}sil" -filter '["Carretera","Camino","Corriente de Agua","Canal","Vía Férrea"].indexOf(GEOGRAFICO)>=0' -simplify interval=4 -filter-fields CVE_MUN,GEOGRAFICO -o "$TMP/gj/sil.json" format=geojson precision=0.000001
 ms "${NN}sia" -filter 'GEOGRAFICO=="Cuerpo de Agua"' -simplify interval=4 keep-shapes -filter-fields CVE_MUN -o "$TMP/gj/sia.json" format=geojson precision=0.000001
 ms "${NN}sip" -filter 'GEOGRAFICO=="Centro de Asistencia Médica"' -filter-fields CVE_MUN,NOMSERV,TIPO -o "$TMP/gj/sip.json" format=geojson precision=0.000001
-python3 "$RAIZ/scripts/marco/codificar_entidad.py" "$TMP/gj" "$RAIZ/datos/marco/ent/$NN" "$NN"
+# se escribe en una carpeta temporal y se mueve al final, para no dejar archivos a medias en el repositorio
+python3 "$RAIZ/scripts/marco/codificar_entidad.py" "$TMP/gj" "$TMP/sal" "$NN"
+rm -rf "$RAIZ/datos/marco/ent/$NN"; mkdir -p "$RAIZ/datos/marco/ent"; mv "$TMP/sal" "$RAIZ/datos/marco/ent/$NN"
 rm -rf "$TMP/shp" "$TMP/gj"
