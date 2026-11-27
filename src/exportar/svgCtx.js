@@ -77,6 +77,8 @@ export class SvgCtx {
   }
   fillText(t, x, y) { this._texto(t, x, y, ` fill="${this.st.fillStyle}"`); }
   strokeText(t, x, y) { this._texto(t, x, y, ` fill="none" stroke="${this.st.strokeStyle}" stroke-width="${n(this.st.lineWidth)}" stroke-linejoin="round"`); }
+  // Imagen incrustada (logo): data URL
+  imagen(src, x, y, w, h) { this.partes.push(`<image href="${escXml(src)}" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" preserveAspectRatio="xMidYMid meet"/>`); }
   aTexto() {
     return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${this.w}" height="${this.h}" viewBox="0 0 ${this.w} ${this.h}"><defs>${this.defs.join("")}</defs>${this.partes.join("\n")}</svg>`;
   }
