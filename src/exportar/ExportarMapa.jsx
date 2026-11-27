@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Copy, Download, ImageDown, Loader2, Plus, Search, Star, Trash2, X, ArrowUp, Minus, Maximize, Move, Images, Upload } from "lucide-react";
 import { C, NIVEL_COLOR } from "../instituciones";
-import { ENT_CENTROS, ENT_NOMBRES, capaReferencia, cargarDetalles, entidadesGeo, marcoAgeb, marcoLocalidades, marcoMunDetalle, marcoRurales, municipiosGeo } from "../datos";
+import { ENT_CENTROS, ENT_NOMBRES, capaReferencia, cargarDetalles, entidadesGeo, marcoAgeb, marcoEntidad, marcoLocalidades, marcoMunDetalle, marcoRurales, municipiosGeo } from "../datos";
 import { fmtN, fold, guardarArchivo, titleCase } from "../util";
 import { FORMATOS, FUENTES, aplicarVista, claveMun, componer, fuentePorId, preparar, seccionesLeyenda } from "./componer";
 import { crearZip } from "./zip";
@@ -44,6 +44,7 @@ const DEF = {
   invertir: false,
   ref: { carreteras: "no", agua: false, locPoligonos: "no", rurales: false, ageb: "no", localidades: false, localidadesN: 12, localidadesRurales: false },
   contornoJur: { ver: false, color: "#111827", grosor: 3 },
+  det: { manzanas: "no", calles: "no", nombresCalles: false, agua: false, carreteras: false, salud: "no", radio: 300 },
   cobertura: { ver: false, km: 10, de: "todas", color: "#0284c7", opacidad: 0.3 },
   calor: { ver: false, radioKm: 15, paleta: "ylorrd", opacidad: 0.8, resolucion: 200 },
   logo: { pos: "sup-der", tam: 8 },
@@ -51,7 +52,7 @@ const DEF = {
   textosLeyenda: {},
   colorFondo: "#ffffff",
 };
-const ANIDADOS = ["puntos", "etiquetas", "elementos", "ref", "contornoJur", "cobertura", "calor", "logo"];
+const ANIDADOS = ["puntos", "etiquetas", "elementos", "ref", "contornoJur", "cobertura", "calor", "logo", "det"];
 
 /* Carga una fuente de Google Fonts (una sola vez) y espera a que esté lista para el canvas */
 const fuentesPedidas = new Set();
@@ -68,7 +69,7 @@ function cargarFuente(f) {
   // la hoja de estilos tarda un momento en registrar las @font-face
   return new Promise((ok) => setTimeout(ok, 150)).then(esperar).then(() => new Promise((ok) => setTimeout(ok, 300))).then(esperar).catch(() => {});
 }
-const CLAVE_LS = "clues-exportar-v5";
+const CLAVE_LS = "clues-exportar-v6";
 const leerLS = () => {
   try {
     const v = JSON.parse(localStorage.getItem(CLAVE_LS) || "{}");
@@ -177,7 +178,18 @@ export function ExportarMapa({ data, filtrados, selEnt, selMun, corte, filtrosTe
     for (const e of entsAgeb) for (const [k, v] of munDetPorEnt.get(e) || []) m.set(k, v);
     return m;
   }, [usaDetalle, entsAgeb, munDetPorEnt]);
-  const marco = useMemo(() => ({ loc: mLoc, rur: mRur, ageb: o.ref.ageb !== "no" ? new Map([...mAgeb].filter(([e]) => entsAgeb.includes(e))) : null }), [mLoc, mRur, mAgeb, entsAgeb, o.ref.ageb]);
+  // Detalle por entidad (manzanas, calles, servicios): solo para 1 a 3 entidades
+  const [detPorEnt, setDetPorEnt] = useState(() => new Map()); // "NN|capa" → datos
+  const capasDet = [o.det.manzanas !== "no" && "manzanas", o.det.calles !== "no" || o.det.nombresCalles ? "calles" : null, o.det.agua || o.det.carreteras || o.det.salud !== "no" ? "servicios" : null].filter(Boolean);
+  useEffect(() => {
+    if (!activa || !usaDetalle) return;
+    for (const e of entsAgeb) for (const c of capasDet) if (!detPorEnt.has(`${e}|${c}`)) conCarga(marcoEntidad(e, c).then((d) => setDetPorEnt((m) => new Map(m).set(`${e}|${c}`, d))));
+  }, [activa, usaDetalle, entsAgeb, capasDet.join(), detPorEnt]); // eslint-disable-line react-hooks/exhaustive-deps
+  const det = useMemo(() => {
+    if (!usaDetalle || !capasDet.length) return null;
+    return new Map(entsAgeb.map((e) => [e, Object.fromEntries(["manzanas", "calles", "servicios"].map((c) => [c, capasDet.includes(c) ? detPorEnt.get(`${e}|${c}`) : null]))]));
+  }, [usaDetalle, entsAgeb, capasDet.join(), detPorEnt]); // eslint-disable-line react-hooks/exhaustive-deps
+  const marco = useMemo(() => ({ loc: mLoc, rur: mRur, det, ageb: o.ref.ageb !== "no" ? new Map([...mAgeb].filter(([e]) => entsAgeb.includes(e))) : null }), [mLoc, mRur, mAgeb, entsAgeb, o.ref.ageb, det]);
 
   // Logo propio (se recuerda en este navegador)
   const [logo, setLogo] = useState(null);
@@ -257,7 +269,7 @@ export function ExportarMapa({ data, filtrados, selEnt, selMun, corte, filtrosTe
     () => (geo ? { ...geo, unidades: filtrados, selEnt, selMun, jurPorMun, seleccion, entCentros, corte, filtrosTexto, ref, logo, marco, munDet } : null),
     [geo, filtrados, selEnt, selMun, jurPorMun, seleccion, entCentros, corte, filtrosTexto, ref, logo, marco, munDet]
   );
-  const claves = [o.encuadre, o.municipios, o.medida, o.metodo, o.clases, o.paleta, o.paletaCat, o.soloSeleccion, o.invertir, o.paletaPersonal, o.contornoJur.ver];
+  const claves = [o.encuadre, o.municipios, o.medida, o.metodo, o.clases, o.paleta, o.paletaCat, o.soloSeleccion, o.invertir, o.paletaPersonal, o.contornoJur.ver, o.det.salud, o.det.radio];
   const prep = useMemo(() => (g ? preparar(g, opc) : null), [g, ...claves]); // eslint-disable-line react-hooks/exhaustive-deps
   const formato = FORMATOS.find((f) => f.id === o.formato) || FORMATOS[0];
 
@@ -416,6 +428,15 @@ export function ExportarMapa({ data, filtrados, selEnt, selMun, corte, filtrosTe
     await guardarArchivo(`mapas-por-${tipo === "entidad" ? "entidad" : "jurisdiccion"}.zip`, crearZip(archivos), "application/zip");
     setLote(null);
     aviso(`${archivos.length} mapas descargados en un ZIP`);
+  };
+
+  const descargarComparacion = async () => {
+    if (!prep?.saludComp) return;
+    const esc = (v) => { const t = v == null ? "" : String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+    const filas = [["ENTIDAD", "CVE_MUN", "NOMBRE_INEGI", "TIPO_INEGI", "LATITUD", "LONGITUD", "CLUES_CERCANA", "NOMBRE_CLUES", "DISTANCIA_M", "CON_CLUES"]];
+    for (const x of prep.saludComp) filas.push([ENT_NOMBRES[x.ent - 1], String(x.mun).padStart(3, "0"), x.nombre, x.tipo, x.lat.toFixed(6), x.lng.toFixed(6), x.cercana?.CLUES || "", x.cercana?.["NOMBRE DE LA UNIDAD"] || "", Number.isFinite(x.km) ? Math.round(x.km * 1000) : "", x.con ? "SI" : "NO"]);
+    await guardarArchivo("servicios_salud_inegi_vs_clues.csv", "\ufeff" + filas.map((f) => f.map(esc).join(",")).join("\n"), "text/csv");
+    aviso("CSV descargado");
   };
 
   // Textos de la leyenda (para editarlos)
@@ -660,6 +681,38 @@ export function ExportarMapa({ data, filtrados, selEnt, selMun, corte, filtrosTe
           <Interruptor checked={o.ref.agua} onChange={(v) => cambiaEn("ref", "agua", v)}>Ríos y cuerpos de agua</Interruptor>
           {necesitaRef && !ref && <p className="flex items-center gap-1.5 text-xs text-neutral-500"><Loader2 className="animate-spin" style={{ width: 13, height: 13 }} /> Cargando capas…</p>}
           <p className="text-[11px] leading-snug text-neutral-500">El Marco Geoestadístico nacional no incluye carreteras ni ríos; estos vienen de Natural Earth (dominio público).</p>
+        </Seccion>
+
+        <Seccion titulo="Detalle urbano (Marco por entidad)">
+          {!usaDetalle ? (
+            <p className="text-xs leading-snug text-neutral-600">Elige de 1 a 3 entidades, o municipios, en los filtros para usar manzanas, calles y servicios de salud del Marco Geoestadístico.</p>
+          ) : (
+            <>
+              <div><Etq>Manzanas</Etq><Opciones value={o.det.manzanas} onChange={(v) => cambiaEn("det", "manzanas", v)} opciones={[["no", "No"], ["urbanas", "Urbanas"], ["todas", "Urbanas y rurales"]]} /></div>
+              <div><Etq>Calles</Etq><Opciones value={o.det.calles} onChange={(v) => cambiaEn("det", "calles", v)} opciones={[["no", "No"], ["principales", "Principales"], ["todas", "Todas"]]} /></div>
+              <Interruptor checked={o.det.nombresCalles} onChange={(v) => cambiaEn("det", "nombresCalles", v)}>Nombres de avenidas y bulevares</Interruptor>
+              <Interruptor checked={o.det.carreteras} onChange={(v) => cambiaEn("det", "carreteras", v)}>Carreteras, caminos y vías férreas</Interruptor>
+              <Interruptor checked={o.det.agua} onChange={(v) => cambiaEn("det", "agua", v)}>Corrientes y cuerpos de agua</Interruptor>
+              <div className="border-t border-neutral-100 pt-3">
+                <Etq>Servicios de salud del Marco Geoestadístico</Etq>
+                <Opciones value={o.det.salud} onChange={(v) => cambiaEn("det", "salud", v)} opciones={[["no", "No"], ["todos", "Mostrar"], ["comparar", "Comparar con CLUES"]]} />
+                {o.det.salud === "comparar" && (
+                  <div className="mt-2 space-y-2">
+                    <Deslizador label="Distancia máxima a una CLUES" value={o.det.radio} min={50} max={2000} step={50} onChange={(v) => cambiaEn("det", "radio", v)} fmt={(v) => `${v} m`} />
+                    {prep?.saludComp && (
+                      <>
+                        <p className="text-xs text-neutral-700">{fmtN(prep.saludComp.length)} servicios de salud en el área; <b className="text-red-700">{fmtN(prep.saludComp.filter((x) => !x.con).length)} sin unidad CLUES</b> a {o.det.radio} m o menos.</p>
+                        <button type="button" onClick={descargarComparacion} className="flex items-center gap-1.5 text-xs font-semibold text-guinda hover:underline"><Download style={{ width: 13, height: 13 }} /> Descargar comparación (CSV)</button>
+                      </>
+                    )}
+                    <p className="text-[11px] leading-snug text-neutral-500">Compara contra las unidades del filtro activo. Útil para detectar establecimientos sin CLUES o coordenadas por revisar.</p>
+                  </div>
+                )}
+              </div>
+              {cargandoMarco > 0 && <p className="flex items-center gap-1.5 text-xs text-neutral-500"><Loader2 className="animate-spin" style={{ width: 13, height: 13 }} /> Cargando detalle…</p>}
+              <p className="text-[11px] leading-snug text-neutral-500">Marco Geoestadístico Integrado 2025 por entidad: manzanas, ejes de vialidad y servicios (INEGI). Pensado para mapas municipales o de localidad.</p>
+            </>
+          )}
         </Seccion>
 
         <Seccion titulo="Cobertura y mapa de calor">

@@ -27,7 +27,7 @@
   var cache={};
   window.__cluesDatos=function(id){
     // Marco Geoestadístico por entidad: AGEB (m-ageb-01…32) y municipios detallados (m-mun-01…32)
-    var d=datos[id]||(/^m-ageb-\d\d$/.test(id)?["marco/ageb/"+id.slice(7)+".json",0]:/^m-mun-\d\d$/.test(id)?["marco/mun/"+id.slice(6)+".json",0]:null);if(!d)return null;
+    var d=datos[id]||(/^m-ageb-\d\d$/.test(id)?["marco/ageb/"+id.slice(7)+".json",0]:/^m-mun-\d\d$/.test(id)?["marco/mun/"+id.slice(6)+".json",0]:/^m-ent-\d\d-[a-z]+$/.test(id)?["marco/ent/"+id.slice(6,8)+"/"+id.slice(9)+".json",0]:null);if(!d)return null;
     return cache[id]||(cache[id]=bin("datos/"+d[0]+".gz").catch(function(e){delete cache[id];throw e;}));
   };
   Object.keys(datos).forEach(function(id){if(datos[id][1])window.__cluesDatos(id).catch(function(){});});

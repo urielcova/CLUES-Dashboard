@@ -142,6 +142,24 @@ export const marcoMunDetalle = (cveEnt) => {
     _mMun.set(id, gunzipB64(blob(`m-mun-${id}`)).then((M) => { const r = anillosDe(M.g, M.q); return new Map(M.k.map((k, i) => [k, { type: "MultiPolygon", coordinates: r[i].map((a) => [a]) }])); }).catch((e) => { _mMun.delete(id); throw e; }));
   return _mMun.get(id);
 };
+/* Detalle por entidad (Marco Geoestadístico completo): manzanas, calles y servicios (agua, carreteras locales, salud) */
+const _mEnt = new Map();
+const lineasDe = (g, q) => g.map((ls) => ls.map((f) => { const out = []; let x = f[0], y = f[1]; out.push([x / q, y / q]); for (let i = 2; i < f.length; i += 2) { x += f[i]; y += f[i + 1]; out.push([x / q, y / q]); } return out; }));
+export const marcoEntidad = (cveEnt, capa) => {
+  const id = `m-ent-${String(cveEnt).padStart(2, "0")}-${capa}`;
+  if (!_mEnt.has(id))
+    _mEnt.set(id, gunzipB64(blob(id)).then((D) => {
+      if (capa === "manzanas") { const r = lineasDe(D.g, D.q); return D.m.map((m, i) => ({ mun: m, urbana: D.u[i] === 1, anillos: r[i] })); }
+      if (capa === "calles") { const r = lineasDe(D.g, D.q); return D.m.map((m, i) => ({ mun: m, tipo: D.tipos[D.t[i]], nombre: D.n[i], lineas: r[i] })); }
+      const li = lineasDe(D.lineas.g, D.lineas.q), ag = lineasDe(D.agua.g, D.agua.q);
+      return {
+        lineas: D.lineas.m.map((m, i) => ({ mun: m, clase: D.lineas.clases[D.lineas.c[i]], lineas: li[i] })),
+        agua: D.agua.m.map((m, i) => ({ mun: m, anillos: ag[i] })),
+        salud: D.salud.m.map((m, i) => ({ mun: m, lat: D.salud.p[i][0] / D.salud.q, lng: D.salud.p[i][1] / D.salud.q, nombre: D.salud.n[i], tipo: D.salud.t[i] })),
+      };
+    }).catch((e) => { _mEnt.delete(id); throw e; }));
+  return _mEnt.get(id);
+};
 export const marcoAgeb = (cveEnt) => {
   const id = String(cveEnt).padStart(2, "0");
   if (!_mAgeb.has(id))
