@@ -25,6 +25,8 @@ Tablero interactivo del Catálogo de Clave Única de Establecimientos de Salud (
 | `src/index.template.html` | Plantilla del cargador: descarga datos y código en paralelo; `detalles` y `xlsx` solo bajo demanda |
 | `src/logos.json`, `src/estilos.css`, `tailwind.config.js` | Logotipos institucionales y estilos (Tailwind CSS 3) |
 | `datos/*.gz` | Catálogo, detalles, límites INEGI, referencia y lector de Excel (gzip binario) |
+| `datos/marco/` | Marco Geoestadístico 2025: localidades amanzanadas, localidades rurales puntuales, y por entidad AGEB (`ageb/NN`) y municipios detallados (`mun/NN`); se cargan solo al usarse |
+| `scripts/marco/codificar.py` | Convierte los SHAPE del Marco Geoestadístico al formato del tablero (pasos en el propio archivo) |
 | `scripts/build.mjs` | Compilación |
 | `index.html`, `app.js`, `leaflet.js` | **Generados** por la compilación; GitHub Pages los publica desde la raíz |
 
@@ -44,6 +46,6 @@ npm run serve     # http://localhost:8080
 
 ## Fuentes
 - DGIS, Catálogo CLUES (Secretaría de Salud).
-- INEGI, Marco Geoestadístico 2025 (límites estatales y municipales).
+- INEGI, Marco Geoestadístico Integrado, Encuesta Intercensal 2025 (límites estatales y municipales, localidades y AGEB).
 - Natural Earth (referencia cartográfica).
 - © colaboradores de OpenStreetMap; CARTO.

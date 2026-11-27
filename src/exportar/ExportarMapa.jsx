@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Copy, Download, ImageDown, Loader2, Plus, Search, Star, Trash2, X, ArrowUp, Minus, Maximize, Move, Images, Upload } from "lucide-react";
 import { C, NIVEL_COLOR } from "../instituciones";
-import { ENT_CENTROS, ENT_NOMBRES, capaReferencia, cargarDetalles, entidadesGeo, municipiosGeo } from "../datos";
+import { ENT_CENTROS, ENT_NOMBRES, capaReferencia, cargarDetalles, entidadesGeo, marcoAgeb, marcoLocalidades, marcoMunDetalle, marcoRurales, municipiosGeo } from "../datos";
 import { fmtN, fold, guardarArchivo, titleCase } from "../util";
 import { FORMATOS, FUENTES, aplicarVista, claveMun, componer, fuentePorId, preparar, seccionesLeyenda } from "./componer";
 import { crearZip } from "./zip";
@@ -42,7 +42,7 @@ const DEF = {
   tituloLeyenda: "Leyenda",
   paletaPersonal: ["#f7fbff", "#6baed6", "#08306b"],
   invertir: false,
-  ref: { carreteras: "no", agua: false, urbano: false, localidades: false, localidadesN: 12 },
+  ref: { carreteras: "no", agua: false, locPoligonos: "no", rurales: false, ageb: "no", localidades: false, localidadesN: 12, localidadesRurales: false },
   contornoJur: { ver: false, color: "#111827", grosor: 3 },
   cobertura: { ver: false, km: 10, de: "todas", color: "#0284c7", opacidad: 0.3 },
   calor: { ver: false, radioKm: 15, paleta: "ylorrd", opacidad: 0.8, resolucion: 200 },
@@ -68,7 +68,7 @@ function cargarFuente(f) {
   // la hoja de estilos tarda un momento en registrar las @font-face
   return new Promise((ok) => setTimeout(ok, 150)).then(esperar).then(() => new Promise((ok) => setTimeout(ok, 300))).then(esperar).catch(() => {});
 }
-const CLAVE_LS = "clues-exportar-v4";
+const CLAVE_LS = "clues-exportar-v5";
 const leerLS = () => {
   try {
     const v = JSON.parse(localStorage.getItem(CLAVE_LS) || "{}");
@@ -143,9 +143,41 @@ export function ExportarMapa({ data, filtrados, selEnt, selMun, corte, filtrosTe
   const necesitaJur = o.municipios === "jurisdiccion" || o.etiquetas.jurisdicciones || o.contornoJur.ver;
 
   // Capas de referencia (se cargan solo si se piden)
-  const necesitaRef = o.ref.carreteras !== "no" || o.ref.agua || o.ref.urbano || o.ref.localidades;
+  const necesitaRef = o.ref.carreteras !== "no" || o.ref.agua;
   const [ref, setRef] = useState(null);
   useEffect(() => { if (activa && necesitaRef && !ref) capaReferencia().then(setRef); }, [activa, necesitaRef, ref]);
+
+  // Marco Geoestadístico (INEGI): localidades, localidades rurales y AGEB, solo si se piden
+  const [mLoc, setMLoc] = useState(null);
+  const [mRur, setMRur] = useState(null);
+  const [mAgeb, setMAgeb] = useState(() => new Map());
+  const [cargandoMarco, setCargandoMarco] = useState(0);
+  const conCarga = (p) => { setCargandoMarco((n) => n + 1); return p.catch(() => aviso("No se pudo cargar una capa del Marco Geoestadístico (¿sin internet?)")).finally(() => setCargandoMarco((n) => n - 1)); };
+  const pideLoc = o.ref.locPoligonos !== "no" || o.ref.localidades;
+  useEffect(() => { if (activa && pideLoc && !mLoc) conCarga(marcoLocalidades().then(setMLoc)); }, [activa, pideLoc, mLoc]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (activa && o.ref.rurales && !mRur) conCarga(marcoRurales().then(setMRur)); }, [activa, o.ref.rurales, mRur]); // eslint-disable-line react-hooks/exhaustive-deps
+  const entsAgeb = useMemo(() => {
+    const nombres = selMun.length ? selMun.map((k) => k.split("||")[0]) : selEnt;
+    return [...new Set(nombres.map((n) => ENT_NOMBRES.findIndex((e) => fold(e) === fold(n)) + 1).filter((i) => i > 0))];
+  }, [selEnt, selMun]);
+  useEffect(() => {
+    if (!activa || o.ref.ageb === "no") return;
+    for (const e of entsAgeb) if (!mAgeb.has(e)) conCarga(marcoAgeb(e).then((lista) => setMAgeb((m) => new Map(m).set(e, lista))));
+  }, [activa, o.ref.ageb, entsAgeb, mAgeb]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Límites municipales detallados: para mapas de pocas entidades o de municipios
+  const [munDetPorEnt, setMunDetPorEnt] = useState(() => new Map());
+  const usaDetalle = entsAgeb.length > 0 && entsAgeb.length <= 3;
+  useEffect(() => {
+    if (!activa || !usaDetalle) return;
+    for (const e of entsAgeb) if (!munDetPorEnt.has(e)) conCarga(marcoMunDetalle(e).then((m) => setMunDetPorEnt((x) => new Map(x).set(e, m))));
+  }, [activa, usaDetalle, entsAgeb, munDetPorEnt]); // eslint-disable-line react-hooks/exhaustive-deps
+  const munDet = useMemo(() => {
+    if (!usaDetalle) return null;
+    const m = new Map();
+    for (const e of entsAgeb) for (const [k, v] of munDetPorEnt.get(e) || []) m.set(k, v);
+    return m;
+  }, [usaDetalle, entsAgeb, munDetPorEnt]);
+  const marco = useMemo(() => ({ loc: mLoc, rur: mRur, ageb: o.ref.ageb !== "no" ? new Map([...mAgeb].filter(([e]) => entsAgeb.includes(e))) : null }), [mLoc, mRur, mAgeb, entsAgeb, o.ref.ageb]);
 
   // Logo propio (se recuerda en este navegador)
   const [logo, setLogo] = useState(null);
@@ -222,8 +254,8 @@ export function ExportarMapa({ data, filtrados, selEnt, selMun, corte, filtrosTe
   const opc = useMemo(() => ({ ...o, titulo: o.titulo ?? tituloAuto, subtitulo: o.subtitulo ?? subtituloAuto, vista }), [o, tituloAuto, subtituloAuto, vista]);
 
   const g = useMemo(
-    () => (geo ? { ...geo, unidades: filtrados, selEnt, selMun, jurPorMun, seleccion, entCentros, corte, filtrosTexto, ref, logo } : null),
-    [geo, filtrados, selEnt, selMun, jurPorMun, seleccion, entCentros, corte, filtrosTexto, ref, logo]
+    () => (geo ? { ...geo, unidades: filtrados, selEnt, selMun, jurPorMun, seleccion, entCentros, corte, filtrosTexto, ref, logo, marco, munDet } : null),
+    [geo, filtrados, selEnt, selMun, jurPorMun, seleccion, entCentros, corte, filtrosTexto, ref, logo, marco, munDet]
   );
   const claves = [o.encuadre, o.municipios, o.medida, o.metodo, o.clases, o.paleta, o.paletaCat, o.soloSeleccion, o.invertir, o.paletaPersonal, o.contornoJur.ver];
   const prep = useMemo(() => (g ? preparar(g, opc) : null), [g, ...claves]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -366,6 +398,8 @@ export function ExportarMapa({ data, filtrados, selEnt, selMun, corte, filtrosTe
       const x = grupos[i];
       const cl = new Set(x.unidades.map((u) => u.CLUES));
       const g2 = { ...g, unidades: x.unidades, selEnt: x.selEnt, selMun: x.selMun, seleccion: seleccion.filter((u) => cl.has(u.CLUES)) };
+      const cves = [...new Set((x.selMun.length ? x.selMun.map((k) => k.split("||")[0]) : x.selEnt).map((n) => ENT_NOMBRES.findIndex((e) => fold(e) === fold(n)) + 1).filter((c) => c > 0))];
+      try { const det = new Map(); for (const c of cves) for (const [k, v] of await marcoMunDetalle(c)) det.set(k, v); g2.munDet = det; } catch { /* sin detalle: se usan los límites generales */ }
       const o2 = { ...opc, titulo: tituloPara(x.lugar), subtitulo: subtituloPara(x.unidades.length), vista: null };
       const p2 = preparar(g2, o2);
       const cv = document.createElement("canvas");
@@ -604,13 +638,28 @@ export function ExportarMapa({ data, filtrados, selEnt, selMun, corte, filtrosTe
         </Seccion>
 
         <Seccion titulo="Capas de referencia">
+          <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-guindaDark">Marco Geoestadístico (INEGI)</p>
+          <div><Etq>Localidades amanzanadas (polígonos)</Etq><Opciones value={o.ref.locPoligonos} onChange={(v) => cambiaEn("ref", "locPoligonos", v)} opciones={[["no", "No"], ["urbanas", "Urbanas"], ["todas", "Urbanas y rurales"]]} /></div>
+          <Interruptor checked={o.ref.rurales} onChange={(v) => cambiaEn("ref", "rurales", v)}>Localidades rurales (puntos)</Interruptor>
+          <div>
+            <Etq>AGEB</Etq>
+            <Opciones value={o.ref.ageb} onChange={(v) => cambiaEn("ref", "ageb", v)} opciones={[["no", "No"], ["urbanas", "Urbanas"], ["todas", "Urbanas y rurales"]]} />
+            {o.ref.ageb !== "no" && !entsAgeb.length && <p className="mt-1 text-[11px] text-amber-700">Elige una o más entidades o municipios en los filtros para ver las AGEB.</p>}
+          </div>
+          <Interruptor checked={o.ref.localidades} onChange={(v) => cambiaEn("ref", "localidades", v)}>Nombres de localidades principales</Interruptor>
+          {o.ref.localidades && (
+            <>
+              <Deslizador label="Número de nombres" value={o.ref.localidadesN} min={3} max={60} step={1} onChange={(v) => cambiaEn("ref", "localidadesN", v)} />
+              <Interruptor checked={o.ref.localidadesRurales} onChange={(v) => cambiaEn("ref", "localidadesRurales", v)}>Incluir rurales amanzanadas</Interruptor>
+            </>
+          )}
+          {cargandoMarco > 0 && <p className="flex items-center gap-1.5 text-xs text-neutral-500"><Loader2 className="animate-spin" style={{ width: 13, height: 13 }} /> Cargando Marco Geoestadístico…</p>}
+          <p className="text-[11px] leading-snug text-neutral-500">Marco Geoestadístico Integrado, Encuesta Intercensal 2025. Las localidades principales son las de mayor superficie amanzanada; los nombres no se enciman.</p>
+          <p className="border-t border-neutral-100 pt-3 text-[11px] font-bold uppercase tracking-[0.08em] text-guindaDark">Natural Earth</p>
           <div><Etq>Carreteras</Etq><Opciones value={o.ref.carreteras} onChange={(v) => cambiaEn("ref", "carreteras", v)} opciones={[["no", "No"], ["principales", "Principales"], ["todas", "Todas"]]} /></div>
           <Interruptor checked={o.ref.agua} onChange={(v) => cambiaEn("ref", "agua", v)}>Ríos y cuerpos de agua</Interruptor>
-          <Interruptor checked={o.ref.urbano} onChange={(v) => cambiaEn("ref", "urbano", v)}>Zonas urbanas</Interruptor>
-          <Interruptor checked={o.ref.localidades} onChange={(v) => cambiaEn("ref", "localidades", v)}>Localidades principales</Interruptor>
-          {o.ref.localidades && <Deslizador label="Número de localidades" value={o.ref.localidadesN} min={3} max={40} step={1} onChange={(v) => cambiaEn("ref", "localidadesN", v)} />}
           {necesitaRef && !ref && <p className="flex items-center gap-1.5 text-xs text-neutral-500"><Loader2 className="animate-spin" style={{ width: 13, height: 13 }} /> Cargando capas…</p>}
-          <p className="text-[11px] leading-snug text-neutral-500">Natural Earth (dominio público). Las localidades se ordenan por número de unidades en el catálogo.</p>
+          <p className="text-[11px] leading-snug text-neutral-500">El Marco Geoestadístico nacional no incluye carreteras ni ríos; estos vienen de Natural Earth (dominio público).</p>
         </Seccion>
 
         <Seccion titulo="Cobertura y mapa de calor">

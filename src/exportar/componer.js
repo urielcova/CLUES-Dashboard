@@ -70,9 +70,11 @@ export function preparar(g, o) {
   const { entFC, munFC, unidades, selEnt, selMun, jurPorMun, seleccion } = g;
   const setEnt = new Set(selEnt.map((e) => fold(e)));
   const setMun = new Set(selMun.map((k) => fold(k)));
-  const munsEstudio = munFC.features.filter((f) =>
+  let munsEstudio = munFC.features.filter((f) =>
     setMun.size ? setMun.has(claveMun(f.properties.ent, f.properties.mun)) : setEnt.size ? setEnt.has(fold(f.properties.ent)) : true
   );
+  // Límites con más detalle (Marco Geoestadístico ≈35 m) cuando ya se cargaron para estas entidades
+  if (g.munDet?.size) munsEstudio = munsEstudio.map((f) => (g.munDet.has(f.properties.key) ? { ...f, geometry: g.munDet.get(f.properties.key) } : f));
   const entsConMun = new Set(munsEstudio.map((f) => fold(f.properties.ent)));
   const entEstudio = entFC.features.filter((f) => (setEnt.size || setMun.size ? entsConMun.has(fold(f.properties.ent)) : true));
   const nacional = !setEnt.size && !setMun.size;
@@ -331,13 +333,55 @@ function dibujarMapa(ctx, R, u, g, o, prep, esquinaLeyenda) {
     if (o.bordesMun) { trazarFeatures(ctx, prep.munsEstudio, pr); ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = lw; ctx.stroke(); }
   }
 
-  // 2b) Capas de referencia (Natural Earth): zonas urbanas, agua y carreteras
+  // 2b) Marco Geoestadístico (INEGI): AGEB y localidades; Natural Earth: agua y carreteras
   const ref = o.ref || {};
-  if (g.ref) {
-    if (ref.urbano) {
-      trazarFeatures(ctx, g.ref.urbano.features, pr);
-      ctx.globalAlpha = 0.55; ctx.fillStyle = "#8b7f73"; ctx.fill(); ctx.globalAlpha = 1;
+  const mz = g.marco || {};
+  const enEstudio = prep.nacional ? null : new Set(prep.munsEstudio.map((f) => f.properties.key));
+  const claveLoc = (e, m) => `${String(e).padStart(2, "0")}${String(m).padStart(3, "0")}`;
+  const [ba, bb, bc, bd] = bbox;
+  const visible = (lat, lng, mg = 0.3) => lng >= ba - mg && lng <= bc + mg && lat >= bb - mg && lat <= bd + mg;
+  if (ref.ageb && ref.ageb !== "no" && mz.ageb) {
+    ctx.beginPath();
+    for (const [ent, lista] of mz.ageb)
+      for (const a of lista) {
+        if (ref.ageb === "urbanas" && !a.urbana) continue;
+        if (enEstudio && !enEstudio.has(claveLoc(ent, a.mun))) continue;
+        trazarAnillos(ctx, a.anillos, pr, false);
+      }
+    ctx.strokeStyle = ref.ageb === "urbanas" ? "rgba(55,65,81,0.55)" : "rgba(55,65,81,0.4)";
+    ctx.lineWidth = 0.07 * u;
+    ctx.stroke();
+  }
+  if (ref.locPoligonos && ref.locPoligonos !== "no" && mz.loc) {
+    for (const urb of ref.locPoligonos === "todas" ? [false, true] : [true]) {
+      ctx.beginPath();
+      const kmPx = pr.s / 111.32; // px por km
+      for (const l of mz.loc) {
+        if (l.urbana !== urb || !visible(l.lat, l.lng)) continue;
+        if (enEstudio && !enEstudio.has(claveLoc(l.ent, l.mun))) continue;
+        const lado = Math.sqrt(l.area) * kmPx;
+        if (lado < 1.5) { const [x, y] = pr(l.lng, l.lat); const t = Math.max(0.7, lado); ctx.rect(x - t / 2, y - t / 2, t, t); continue; }
+        trazarAnillos(ctx, l.anillos, pr, true);
+      }
+      ctx.globalAlpha = urb ? 0.6 : 0.45;
+      ctx.fillStyle = urb ? "#7c6f64" : "#a8998a";
+      ctx.fill();
+      ctx.globalAlpha = 1;
     }
+  }
+  if (ref.rurales && mz.rur) {
+    const r = 0.16 * u;
+    ctx.beginPath();
+    for (const [la, lo, e, m] of mz.rur) {
+      if (enEstudio && !enEstudio.has(claveLoc(e, m))) continue;
+      if (lo < ba || lo > bc || la < bb || la > bd) continue;
+      const [x, y] = pr(lo, la);
+      ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, Math.PI * 2);
+    }
+    ctx.fillStyle = "#57534e";
+    ctx.fill();
+  }
+  if (g.ref) {
     if (ref.agua) {
       trazarFeatures(ctx, g.ref.lagos.features, pr);
       ctx.fillStyle = "#a9cde3"; ctx.fill();
@@ -447,19 +491,29 @@ function dibujarMapa(ctx, R, u, g, o, prep, esquinaLeyenda) {
     }
   }
 
-  // 5b) Localidades principales (por número de unidades en el catálogo)
-  if (g.ref && ref.localidades) {
-    const [a, b, c, d] = bbox;
-    const ents = prep.nacional ? null : new Set(prep.munsEstudio.map((f) => fold(f.properties.ent)));
-    const locs = g.ref.localidades.filter(([la, lo, , , e]) => lo >= a && lo <= c && la >= b && la <= d && (!ents || ents.has(fold(e)))).sort((x, y) => y[2] - x[2]).slice(0, ref.localidadesN || 12);
-    ctx.font = fuente(1.45 * u, 600);
+  // 5b) Localidades principales (Marco Geoestadístico: las de mayor superficie amanzanada), sin encimarse
+  if (ref.localidades && mz.loc) {
+    const cand = mz.loc
+      .filter((l) => (ref.localidadesRurales || l.urbana) && l.lng >= ba && l.lng <= bc && l.lat >= bb && l.lat <= bd && (!enEstudio || enEstudio.has(claveLoc(l.ent, l.mun))))
+      .sort((x, y) => y.area - x.area);
+    const fs = 1.45 * u;
+    ctx.font = fuente(fs, 600);
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    for (const [la, lo, , nombre] of locs) {
-      const [x, y] = pr(lo, la);
-      ctx.beginPath(); ctx.arc(x, y, 0.5 * u, 0, Math.PI * 2);
-      ctx.fillStyle = "#111827"; ctx.fill(); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 0.18 * u; ctx.stroke();
-      textoHalo(ctx, titleCase(nombre), x + 0.9 * u, y, 1.45 * u, "#111827");
+    const puestos = [];
+    let n = 0;
+    for (const l of cand) {
+      if (n >= (ref.localidadesN || 12)) break;
+      const [x, y] = pr(l.lng, l.lat);
+      if (x < R.x || x > R.x + R.w || y < R.y || y > R.y + R.h) continue;
+      const w = ctx.measureText(l.nombre).width + 1.4 * u, h = fs * 1.4;
+      const caja = [x - 0.7 * u, y - h / 2, x + w, y + h / 2];
+      if (puestos.some((q) => caja[0] < q[2] && caja[2] > q[0] && caja[1] < q[3] && caja[3] > q[1])) continue;
+      puestos.push(caja);
+      n++;
+      ctx.beginPath(); ctx.arc(x, y, 0.45 * u, 0, Math.PI * 2);
+      ctx.fillStyle = "#111827"; ctx.fill(); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 0.16 * u; ctx.stroke();
+      textoHalo(ctx, l.nombre, x + 0.9 * u, y, fs, "#111827");
     }
   }
 
@@ -500,6 +554,21 @@ function dibujarMapa(ctx, R, u, g, o, prep, esquinaLeyenda) {
   return pr;
 }
 
+/* Traza anillos omitiendo vértices a menos de «tol» px del anterior (a escala nacional hay millones bajo un píxel) */
+function trazarAnillos(ctx, anillos, pr, cerrar, tol = 0.6) {
+  const t2 = tol * tol;
+  for (const r of anillos) {
+    let [px, py] = pr(r[0][0], r[0][1]);
+    const [x0, y0] = [px, py];
+    ctx.moveTo(px, py);
+    for (let i = 1; i < r.length; i++) {
+      const [x, y] = pr(r[i][0], r[i][1]);
+      if ((x - px) * (x - px) + (y - py) * (y - py) < t2) continue;
+      ctx.lineTo(x, y); px = x; py = y;
+    }
+    if (cerrar) ctx.closePath(); else ctx.lineTo(x0, y0);
+  }
+}
 function trazarLineas(ctx, features, pr) {
   ctx.beginPath();
   for (const f of features)
@@ -810,11 +879,17 @@ export function seccionesLeyenda(g, o, prep, conTextos = false) {
   const u = 1;
   const extra = [];
   if (prep.segJur && o.contornoJur?.ver) extra.push({ linea: o.contornoJur.color || "#111827", grosor: Math.max(1, (o.contornoJur.grosor || 3) * 0.6), texto: "Límite de jurisdicción sanitaria" });
+  if (o.ref) {
+    const mz = g.marco || {};
+    if (mz.loc && o.ref.locPoligonos === "urbanas") extra.push({ color: "#7c6f64", alpha: 0.6, texto: "Localidades urbanas" });
+    if (mz.loc && o.ref.locPoligonos === "todas") { extra.push({ color: "#7c6f64", alpha: 0.6, texto: "Localidades urbanas" }); extra.push({ color: "#a8998a", alpha: 0.45, texto: "Localidades rurales amanzanadas" }); }
+    if (mz.rur && o.ref.rurales) extra.push({ punto: "#57534e", texto: "Localidades rurales (puntuales)" });
+    if (mz.ageb && o.ref.ageb && o.ref.ageb !== "no") extra.push({ linea: "#6b7280", grosor: 1, texto: o.ref.ageb === "urbanas" ? "AGEB urbanas" : "AGEB urbanas y rurales" });
+    if (mz.loc && o.ref.localidades) extra.push({ punto: "#111827", texto: "Localidades principales" });
+  }
   if (g.ref && o.ref) {
     if (o.ref.carreteras === "principales" || o.ref.carreteras === "todas") extra.push({ linea: "#d9622b", grosor: 3, casco: true, texto: o.ref.carreteras === "todas" ? "Carreteras" : "Carreteras principales" });
     if (o.ref.agua) extra.push({ linea: "#7fb3d5", grosor: 2.5, texto: "Ríos y cuerpos de agua" });
-    if (o.ref.urbano) extra.push({ color: "#8b7f73", alpha: 0.55, texto: "Zonas urbanas" });
-    if (o.ref.localidades) extra.push({ punto: "#111827", texto: "Localidades principales" });
   }
   if (o.calor?.ver && prep.puntos.length) extra.push({ gradiente: rampa(paletaSec(o.calor.paleta || "ylorrd").c, 6).slice(1), texto: "Densidad de unidades (baja → alta)" });
   if (o.cobertura?.ver) extra.push({ color: o.cobertura.color || "#0284c7", alpha: Math.max(0.25, o.cobertura.opacidad ?? 0.3), texto: `A ${o.cobertura.km} km o menos de ${o.cobertura.de === "seleccion" ? "un establecimiento de interés" : o.cobertura.de === "nivel23" ? "una unidad de 2.º o 3.er nivel" : "una unidad"}` });
@@ -866,7 +941,8 @@ function notasTexto(g, o, prep) {
   if (!prep.nacional && ents.length > 1 && ents.length <= 12) out.push([`Entidades: ${ents.join(", ")}`, false]);
   if (g.filtrosTexto) out.push([`Filtros: ${g.filtrosTexto}`, false]);
   if (o.notas) out.push([o.notas, false]);
-  out.push([`Fuente: DGIS, Catálogo CLUES (corte ${g.corte}); INEGI, Marco Geoestadístico 2025. SRC: EPSG:4326 – WGS 84.`, false]);
+  const ne = o.ref && (o.ref.agua || (o.ref.carreteras && o.ref.carreteras !== "no")) ? "; Natural Earth (carreteras y agua)" : "";
+  out.push([`Fuente: DGIS, Catálogo CLUES (corte ${g.corte}); INEGI, Marco Geoestadístico Integrado, Encuesta Intercensal 2025${ne}. SRC: EPSG:4326 – WGS 84.`, false]);
   return out;
 }
 
