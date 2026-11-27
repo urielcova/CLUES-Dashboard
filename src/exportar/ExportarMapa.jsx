@@ -5,9 +5,9 @@ import { ChevronDown, Copy, Download, ImageDown, Loader2, Plus, Search, Star, Tr
 import { C, NIVEL_COLOR } from "../instituciones";
 import { ENT_CENTROS, ENT_NOMBRES, cargarDetalles, entidadesGeo, municipiosGeo } from "../datos";
 import { fmtN, fold, guardarArchivo, titleCase } from "../util";
-import { FORMATOS, claveMun, componer, preparar } from "./componer";
+import { FORMATOS, FUENTES, claveMun, componer, fuentePorId, preparar } from "./componer";
 import { METODOS } from "./clasificar";
-import { PALETAS_CATEGORICAS, PALETAS_SECUENCIALES, paletaSec, rampa } from "./paletas";
+import { GRUPOS_PALETA, PALETAS_CATEGORICAS, PALETAS_SECUENCIALES, paletaSec, rampa } from "./paletas";
 import { SvgCtx } from "./svgCtx";
 
 const DEF = {
@@ -31,8 +31,33 @@ const DEF = {
   colorSel: C.dorado,
   etiquetas: { entidades: false, municipios: false, jurisdicciones: false },
   elementos: { leyenda: true, inset: true, notas: true, norte: true, escala: true, marco: true },
+  fuenteTitulos: "montserrat",
+  fuenteTexto: "montserrat",
+  escalaTexto: 1,
+  colorTitulo: "#111827",
+  alinearTitulo: "izquierda",
+  pesoTitulo: 800,
+  tituloLeyenda: "Leyenda",
+  paletaPersonal: ["#f7fbff", "#6baed6", "#08306b"],
+  invertir: false,
 };
-const CLAVE_LS = "clues-exportar-v2";
+
+/* Carga una fuente de Google Fonts (una sola vez) y espera a que esté lista para el canvas */
+const fuentesPedidas = new Set();
+function cargarFuente(f) {
+  if (!f.google) return Promise.resolve();
+  if (!fuentesPedidas.has(f.id)) {
+    fuentesPedidas.add(f.id);
+    const l = document.createElement("link");
+    l.rel = "stylesheet";
+    l.href = `https://fonts.googleapis.com/css2?family=${f.google}&display=swap`;
+    document.head.appendChild(l);
+  }
+  const esperar = () => Promise.all([400, 500, 700, 800].map((w) => document.fonts.load(`${w} 40px "${f.css}"`)));
+  // la hoja de estilos tarda un momento en registrar las @font-face
+  return new Promise((ok) => setTimeout(ok, 150)).then(esperar).then(() => new Promise((ok) => setTimeout(ok, 300))).then(esperar).catch(() => {});
+}
+const CLAVE_LS = "clues-exportar-v3";
 const leerLS = () => { try { const v = JSON.parse(localStorage.getItem(CLAVE_LS) || "{}"); return { ...DEF, ...v, puntos: { ...DEF.puntos, ...v.puntos }, etiquetas: { ...DEF.etiquetas, ...v.etiquetas }, elementos: { ...DEF.elementos, ...v.elementos }, titulo: null, subtitulo: null, notas: "" }; } catch { return DEF; } };
 
 function Seccion({ titulo, abierta = false, children }) {
@@ -147,13 +172,20 @@ export function ExportarMapa({ data, filtrados, selEnt, selMun, corte, filtrosTe
     return `${que} · ${lugar}`;
   }, [selEnt, selMun, o.municipios]);
   const subtituloAuto = `${fmtN(filtrados.length)} unidades en operación${filtrosTexto ? ` · ${filtrosTexto}` : ""} · CLUES, corte ${corte}`;
+  // Fuentes: al cambiar, se descargan y se vuelve a dibujar
+  const [fuentesV, setFuentesV] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    Promise.all([cargarFuente(fuentePorId(o.fuenteTitulos)), cargarFuente(fuentePorId(o.fuenteTexto))]).then(() => vivo && setFuentesV((v) => v + 1));
+    return () => { vivo = false; };
+  }, [o.fuenteTitulos, o.fuenteTexto]);
   const opc = useMemo(() => ({ ...o, titulo: o.titulo ?? tituloAuto, subtitulo: o.subtitulo ?? subtituloAuto }), [o, tituloAuto, subtituloAuto]);
 
   const g = useMemo(
     () => (geo ? { ...geo, unidades: filtrados, selEnt, selMun, jurPorMun, seleccion, entCentros, corte, filtrosTexto } : null),
     [geo, filtrados, selEnt, selMun, jurPorMun, seleccion, entCentros, corte, filtrosTexto]
   );
-  const claves = [o.encuadre, o.municipios, o.medida, o.metodo, o.clases, o.paleta, o.paletaCat, o.soloSeleccion];
+  const claves = [o.encuadre, o.municipios, o.medida, o.metodo, o.clases, o.paleta, o.paletaCat, o.soloSeleccion, o.invertir, o.paletaPersonal];
   const prep = useMemo(() => (g ? preparar(g, opc) : null), [g, ...claves]); // eslint-disable-line react-hooks/exhaustive-deps
   const formato = FORMATOS.find((f) => f.id === o.formato) || FORMATOS[0];
 
@@ -183,7 +215,7 @@ export function ExportarMapa({ data, filtrados, selEnt, selMun, corte, filtrosTe
       componer(ctx, formato.w, formato.h, g, opc, prep);
     });
     return () => cancelAnimationFrame(id);
-  }, [activa, g, prep, opc, cssW, cssH, formato]);
+  }, [activa, g, prep, opc, cssW, cssH, formato, fuentesV]);
 
   // Exportación
   const [escala, setEscala] = useState(2);
@@ -217,8 +249,8 @@ export function ExportarMapa({ data, filtrados, selEnt, selMun, corte, filtrosTe
   };
 
   const listo = g && prep;
-  const pSec = paletaSec(o.paleta);
-  const grupos = [...new Set(PALETAS_SECUENCIALES.map((p) => p.grupo))];
+  const pSec = paletaSec(o.paleta, o.paletaPersonal, o.invertir);
+  const [grupoPal, setGrupoPal] = useState(() => (o.paleta === "personal" ? "Personalizada" : PALETAS_SECUENCIALES.find((p) => p.id === o.paleta)?.grupo || "General"));
 
   return (
     <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
@@ -249,6 +281,33 @@ export function ExportarMapa({ data, filtrados, selEnt, selMun, corte, filtrosTe
           </div>
         </Seccion>
 
+        <Seccion titulo="Tipografía">
+          <label className="block"><Etq>Fuente de títulos</Etq>
+            <select value={o.fuenteTitulos} onChange={(e) => cambia("fuenteTitulos", e.target.value)} className={inputCls} style={{ fontFamily: `"${fuentePorId(o.fuenteTitulos).css}"` }}>
+              {FUENTES.map((f) => <option key={f.id} value={f.id}>{f.nombre}</option>)}
+            </select>
+          </label>
+          <label className="block"><Etq>Fuente del texto (leyenda, notas, etiquetas)</Etq>
+            <select value={o.fuenteTexto} onChange={(e) => cambia("fuenteTexto", e.target.value)} className={inputCls} style={{ fontFamily: `"${fuentePorId(o.fuenteTexto).css}"` }}>
+              {FUENTES.map((f) => <option key={f.id} value={f.id}>{f.nombre}</option>)}
+            </select>
+          </label>
+          <Deslizador label="Tamaño del texto" value={o.escalaTexto} min={0.7} max={1.5} step={0.05} onChange={(v) => cambia("escalaTexto", v)} fmt={(v) => `${Math.round(v * 100)}%`} />
+          <div><Etq>Título</Etq><Opciones value={o.alinearTitulo} onChange={(v) => cambia("alinearTitulo", v)} opciones={[["izquierda", "A la izquierda"], ["centro", "Centrado"]]} /></div>
+          <div><Etq>Grosor del título</Etq><Opciones value={o.pesoTitulo} onChange={(v) => cambia("pesoTitulo", v)} opciones={[[500, "Normal"], [700, "Negrita"], [800, "Extra negrita"]]} /></div>
+          <div className="flex items-center justify-between gap-3 text-sm text-neutral-700">
+            <span>Color de títulos</span>
+            <span className="flex items-center gap-1.5">
+              {["#111827", C.guindaDark, C.guinda, "#10312B", "#1F5E8C"].map((c) => <button key={c} type="button" aria-label={`Color ${c}`} onClick={() => cambia("colorTitulo", c)} className={`h-6 w-6 rounded-full ring-2 ${o.colorTitulo === c ? "ring-guinda" : "ring-transparent"}`} style={{ background: c, boxShadow: "inset 0 0 0 2px #fff" }} />)}
+              <input type="color" value={o.colorTitulo} onChange={(e) => cambia("colorTitulo", e.target.value)} className="h-6 w-8 cursor-pointer rounded border border-neutral-200" aria-label="Otro color" />
+            </span>
+          </div>
+          <label className="block"><Etq>Encabezado de la leyenda</Etq>
+            <input value={o.tituloLeyenda} onChange={(e) => cambia("tituloLeyenda", e.target.value)} className={inputCls} />
+          </label>
+          <p className="text-[11px] leading-snug text-neutral-500">El PNG incluye la fuente. El SVG solo guarda su nombre: para editarlo, instala la fuente (gratuita en Google Fonts).</p>
+        </Seccion>
+
         <Seccion titulo="Municipios" abierta>
           <Opciones value={o.municipios} onChange={(v) => cambia("municipios", v)} opciones={[["ninguno", "Sin relleno"], ["concentracion", "Concentración"], ["jurisdiccion", "Jurisdicciones"]]} />
           {o.municipios === "concentracion" && (
@@ -260,21 +319,42 @@ export function ExportarMapa({ data, filtrados, selEnt, selMun, corte, filtrosTe
               <Deslizador label="Número de clases" value={o.clases} min={3} max={7} step={1} onChange={(v) => cambia("clases", v)} />
               <div>
                 <Etq>Paleta</Etq>
-                <div className="space-y-2">
-                  {grupos.map((gr) => (
-                    <div key={gr}>
-                      <p className="mb-1 text-[11px] font-semibold text-neutral-500">{gr === "Padecimiento" ? "Por padecimiento (listones de concientización)" : gr}</p>
-                      <div className="grid grid-cols-1 gap-1">
-                        {PALETAS_SECUENCIALES.filter((p) => p.grupo === gr).map((p) => (
-                          <button key={p.id} type="button" onClick={() => cambia("paleta", p.id)} aria-pressed={o.paleta === p.id}
-                            className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-left text-xs ${o.paleta === p.id ? "border-guinda bg-guinda/5 font-bold text-guindaDark" : "border-neutral-200 text-neutral-700 hover:bg-neutral-50"}`}>
-                            {p.nombre}<Muestra colores={rampa(p.c, o.clases)} />
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                <div className="mb-2 flex flex-wrap gap-1">
+                  {GRUPOS_PALETA.map((gr) => (
+                    <button key={gr} type="button" onClick={() => setGrupoPal(gr)} aria-pressed={grupoPal === gr}
+                      className={`rounded-md px-2 py-1 text-[11px] font-bold ${grupoPal === gr ? "bg-guindaDark text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"}`}>{gr}</button>
                   ))}
                 </div>
+                {grupoPal === "Padecimiento" && <p className="mb-1.5 text-[11px] leading-snug text-neutral-500">Colores de los listones de concientización más usados; no son colores oficiales.</p>}
+                {grupoPal === "Daltonismo" && <p className="mb-1.5 text-[11px] leading-snug text-neutral-500">Se distinguen con daltonismo y al imprimir en escala de grises.</p>}
+                {grupoPal === "Personalizada" ? (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {o.paletaPersonal.map((c, i) => (
+                        <span key={i} className="relative">
+                          <input type="color" value={c} aria-label={`Color ${i + 1}`} onChange={(e) => setO((p) => ({ ...p, paleta: "personal", paletaPersonal: p.paletaPersonal.map((x, k) => (k === i ? e.target.value : x)) }))} className="h-9 w-10 cursor-pointer rounded border border-neutral-200" />
+                          {o.paletaPersonal.length > 2 && <button type="button" aria-label="Quitar color" onClick={() => setO((p) => ({ ...p, paletaPersonal: p.paletaPersonal.filter((_, k) => k !== i) }))} className="absolute -right-1.5 -top-1.5 grid h-4 w-4 place-items-center rounded-full bg-neutral-700 text-white"><X style={{ width: 10, height: 10 }} /></button>}
+                        </span>
+                      ))}
+                      {o.paletaPersonal.length < 6 && <button type="button" onClick={() => setO((p) => ({ ...p, paletaPersonal: [...p.paletaPersonal, p.paletaPersonal[p.paletaPersonal.length - 1]] }))} className="grid h-9 w-10 place-items-center rounded border border-dashed border-neutral-300 text-neutral-500 hover:border-guinda hover:text-guinda" aria-label="Agregar color"><Plus style={{ width: 15, height: 15 }} /></button>}
+                    </div>
+                    <p className="text-[11px] text-neutral-500">Del valor más bajo (izquierda) al más alto (derecha); los tonos intermedios se calculan solos.</p>
+                    <button type="button" onClick={() => cambia("paleta", "personal")} aria-pressed={o.paleta === "personal"}
+                      className={`flex w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-left text-xs ${o.paleta === "personal" ? "border-guinda bg-guinda/5 font-bold text-guindaDark" : "border-neutral-200 text-neutral-700 hover:bg-neutral-50"}`}>
+                      {o.paleta === "personal" ? "Usando paleta personalizada" : "Usar paleta personalizada"}<Muestra colores={rampa(o.invertir ? [...o.paletaPersonal].reverse() : o.paletaPersonal, o.clases)} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid max-h-72 grid-cols-1 gap-1 overflow-y-auto pr-1">
+                    {PALETAS_SECUENCIALES.filter((p) => p.grupo === grupoPal).map((p) => (
+                      <button key={p.id} type="button" onClick={() => cambia("paleta", p.id)} aria-pressed={o.paleta === p.id}
+                        className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-left text-xs ${o.paleta === p.id ? "border-guinda bg-guinda/5 font-bold text-guindaDark" : "border-neutral-200 text-neutral-700 hover:bg-neutral-50"}`}>
+                        {p.nombre}<Muestra colores={rampa(o.invertir ? [...p.c].reverse() : p.c, o.clases)} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-2"><Interruptor checked={o.invertir} onChange={(v) => cambia("invertir", v)}>Invertir paleta (oscuro = menos)</Interruptor></div>
               </div>
             </>
           )}

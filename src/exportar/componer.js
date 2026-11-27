@@ -6,8 +6,34 @@ import { fold, titleCase, fmtN } from "../util";
 import { claseDe, clasificar } from "./clasificar";
 import { esOscuro, paletaCat, paletaSec, rampa } from "./paletas";
 
-export const FUENTE = "Montserrat, system-ui, sans-serif";
-const fuente = (px, peso = 400) => `${peso} ${Math.round(px * 10) / 10}px ${FUENTE}`;
+/* Fuentes disponibles (Google Fonts, licencia libre; las de sistema no se descargan) */
+export const FUENTES = [
+  { id: "montserrat", nombre: "Montserrat", css: "Montserrat", google: "Montserrat:wght@400;500;600;700;800" },
+  { id: "noto", nombre: "Noto Sans", css: "Noto Sans", google: "Noto+Sans:wght@400;500;600;700;800" },
+  { id: "open", nombre: "Open Sans", css: "Open Sans", google: "Open+Sans:wght@400;500;600;700;800" },
+  { id: "roboto", nombre: "Roboto", css: "Roboto", google: "Roboto:wght@400;500;700;900" },
+  { id: "lato", nombre: "Lato", css: "Lato", google: "Lato:wght@400;700;900" },
+  { id: "source", nombre: "Source Sans 3", css: "Source Sans 3", google: "Source+Sans+3:wght@400;500;600;700;800" },
+  { id: "inter", nombre: "Inter", css: "Inter", google: "Inter:wght@400;500;600;700;800" },
+  { id: "poppins", nombre: "Poppins", css: "Poppins", google: "Poppins:wght@400;500;600;700;800" },
+  { id: "nunito", nombre: "Nunito Sans", css: "Nunito Sans", google: "Nunito+Sans:wght@400;600;700;800" },
+  { id: "plex", nombre: "IBM Plex Sans", css: "IBM Plex Sans", google: "IBM+Plex+Sans:wght@400;500;600;700" },
+  { id: "barlow", nombre: "Barlow", css: "Barlow", google: "Barlow:wght@400;500;600;700;800" },
+  { id: "oswald", nombre: "Oswald (condensada)", css: "Oswald", google: "Oswald:wght@400;500;600;700" },
+  { id: "merriweather", nombre: "Merriweather (serif)", css: "Merriweather", google: "Merriweather:wght@400;700;900" },
+  { id: "lora", nombre: "Lora (serif)", css: "Lora", google: "Lora:wght@400;500;600;700" },
+  { id: "playfair", nombre: "Playfair Display (serif)", css: "Playfair Display", google: "Playfair+Display:wght@400;600;700;800" },
+  { id: "robotoslab", nombre: "Roboto Slab", css: "Roboto Slab", google: "Roboto+Slab:wght@400;500;700;800" },
+  { id: "arial", nombre: "Arial / Helvetica (sistema)", css: "Arial", google: null },
+  { id: "georgia", nombre: "Georgia (sistema)", css: "Georgia", google: null },
+  { id: "verdana", nombre: "Verdana (sistema)", css: "Verdana", google: null },
+];
+export const fuentePorId = (id) => FUENTES.find((f) => f.id === id) || FUENTES[0];
+const pila = (f) => `"${f.css}", ${/serif\)|Georgia|Slab/.test(f.nombre) ? "Georgia, serif" : "system-ui, sans-serif"}`;
+// Se fijan al inicio de cada composición (la composición es síncrona)
+let FAM_T = pila(FUENTES[0]), FAM_X = pila(FUENTES[0]), ESC_T = 1, COLOR_T = "#111827";
+const fuente = (px, peso = 400) => `${peso} ${Math.round(px * ESC_T * 10) / 10}px ${FAM_X}`;
+const fuenteT = (px, peso = 800) => `${peso} ${Math.round(px * ESC_T * 10) / 10}px ${FAM_T}`;
 export const MEXICO_BBOX = [-118.6, 14.3, -86.5, 32.9];
 const GRIS_FUERA = "#d3d5d7";
 const CREMA = "#f7f4ef";
@@ -81,7 +107,7 @@ export function preparar(g, o) {
     }
     const positivos = [...valor.values()].filter((v) => v > 0);
     const cortes = clasificar(positivos, o.clases, o.metodo);
-    const colores = rampa(paletaSec(o.paleta).c, Math.max(1, cortes.length - 1));
+    const colores = rampa(paletaSec(o.paleta, o.paletaPersonal, o.invertir).c, Math.max(1, cortes.length - 1));
     for (const [k, v] of valor) relleno.set(k, v > 0 && cortes.length ? colores[claseDe(v, cortes)] : "#f2f2f2");
     const dec = o.medida === "densidad" ? (cortes[cortes.length - 1] < 10 ? 2 : 1) : 0;
     const fmt = (x) => x.toLocaleString("es-MX", { maximumFractionDigits: dec, minimumFractionDigits: dec });
@@ -165,6 +191,10 @@ const colorPunto = (u, o) =>
 
 /* ---------------- Composición ---------------- */
 export function componer(ctx, W, H, g, o, prep) {
+  FAM_T = pila(fuentePorId(o.fuenteTitulos));
+  FAM_X = pila(fuentePorId(o.fuenteTexto));
+  ESC_T = o.escalaTexto || 1;
+  COLOR_T = o.colorTitulo || "#111827";
   const u = Math.min(W, H) / 100; // unidad de diseño
   const m = 2.4 * u;
   const horizontal = W / H >= 1.15;
@@ -175,21 +205,24 @@ export function componer(ctx, W, H, g, o, prep) {
   // Título
   let top = m;
   if (o.titulo) {
-    ctx.font = fuente(4.4 * u, 800);
+    ctx.font = fuenteT(4.4 * u, o.pesoTitulo || 800);
     ctx.textBaseline = "top";
-    ctx.textAlign = "left";
-    ctx.fillStyle = "#111827";
+    ctx.textAlign = o.alinearTitulo === "centro" ? "center" : "left";
+    ctx.fillStyle = COLOR_T;
     const lt = envolver(ctx, o.titulo, W - 2 * m);
-    lt.forEach((l, i) => ctx.fillText(l, m, top + i * 5.2 * u));
-    top += lt.length * 5.2 * u + 0.6 * u;
+    const xt = o.alinearTitulo === "centro" ? W / 2 : m;
+    lt.forEach((l, i) => ctx.fillText(l, xt, top + i * 5.2 * u * ESC_T));
+    top += lt.length * 5.2 * u * ESC_T + 0.6 * u;
   }
   if (o.subtitulo) {
     ctx.font = fuente(2.4 * u, 500);
     ctx.fillStyle = "#4b5563";
     ctx.textBaseline = "top";
+    ctx.textAlign = o.alinearTitulo === "centro" ? "center" : "left";
     const ls = envolver(ctx, o.subtitulo, W - 2 * m);
-    ls.forEach((l, i) => ctx.fillText(l, m, top + i * 3 * u));
-    top += ls.length * 3 * u;
+    ls.forEach((l, i) => ctx.fillText(l, o.alinearTitulo === "centro" ? W / 2 : m, top + i * 3 * u * ESC_T));
+    top += ls.length * 3 * u * ESC_T;
+    ctx.textAlign = "left";
   }
   if (o.titulo || o.subtitulo) top += 1.6 * u;
 
@@ -430,7 +463,7 @@ function dibujarPanel(ctx, P, u, g, o, prep) {
     for (const l of envolver(ctx, t, colR.w)) lineasNotas.push([l, negrita]);
     lineasNotas.push(["", false, true]);
   }
-  const altoLinea = (l) => (l[2] ? fs * 0.55 : fs * 1.35);
+  const altoLinea = (l) => (l[2] ? fs * 0.55 : fs * 1.35) * ESC_T;
   const altoNotas = lineasNotas.reduce((t, l) => t + altoLinea(l), 0);
   const limiteLeyenda = lateral ? limite - altoNotas - u : limite;
 
@@ -438,20 +471,21 @@ function dibujarPanel(ctx, P, u, g, o, prep) {
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     ctx.fillStyle = "#111827";
-    ctx.font = fuente(3.4 * u, 800);
-    ctx.fillText("Leyenda", colL.x, y);
-    y += 5 * u;
+    ctx.font = fuenteT(3.4 * u, 800);
+    ctx.fillStyle = COLOR_T;
+    ctx.fillText(o.tituloLeyenda ?? "Leyenda", colL.x, y);
+    y += 5 * u * ESC_T;
     const secciones = seccionesLeyenda(g, o, prep);
-    const fl = 2 * u, paso = 3.1 * u, cuadro = 2.3 * u;
+    const fl = 2 * u, paso = 3.1 * u * ESC_T, cuadro = 2.3 * u * Math.min(ESC_T, 1.2);
     // ¿cabe todo en una columna? si no, las secciones largas usan las columnas disponibles
     const maxCols = lateral ? (colL.w > 30 * u ? 2 : 1) : 3;
-    const altoSec = (s, c) => fl * 1.4 + 0.4 * u + Math.ceil(s.items.length / c) * paso + 1.6 * u;
+    const altoSec = (s, c) => fl * 1.4 * ESC_T + 0.4 * u + Math.ceil(s.items.length / c) * paso + 1.6 * u;
     const unaCol = secciones.reduce((t, s) => t + altoSec(s, 1), 0) <= limiteLeyenda - y;
     for (const s of secciones) {
       if (y + paso * 2 > limiteLeyenda) break;
       ctx.font = fuente(fl * 1.12, 700);
       ctx.fillStyle = "#1f2937";
-      for (const l of envolver(ctx, s.titulo, colL.w)) { ctx.fillText(l, colL.x, y); y += fl * 1.4; }
+      for (const l of envolver(ctx, s.titulo, colL.w)) { ctx.fillText(l, colL.x, y); y += fl * 1.4 * ESC_T; }
       y += 0.4 * u;
       // columnas: las necesarias para que quepan (hasta 2 en el panel lateral, 3 abajo)
       const filas = Math.max(1, Math.floor((limiteLeyenda - y) / paso));
@@ -484,7 +518,7 @@ function dibujarPanel(ctx, P, u, g, o, prep) {
       const [l, negrita] = ln;
       ctx.font = fuente(negrita ? fs * 1.15 : fs, negrita ? 700 : 400);
       ctx.fillStyle = negrita ? "#111827" : "#374151";
-      if (yn + fs > limite) break;
+      if (yn + fs * ESC_T > limite) break;
       if (l) ctx.fillText(l, colR.x, yn);
       yn += altoLinea(ln);
     }

@@ -9,7 +9,7 @@ Tablero interactivo del Catálogo de Clave Única de Establecimientos de Salud (
 - Mapa con botón «Ver CLUES en esta zona», sombreado fuera del filtro y «Encontrar CLUES más cercana».
 - Ficha por unidad con indicaciones en Google Maps.
 - Panel **Catálogo** para revisar y cargar un archivo nuevo (clic o arrastrar).
-- Pestaña **Exportar mapa** para presentaciones con los filtros activos: formatos 16:9, 4:3, cuadrado, vertical y carta; concentración de unidades por municipio (conteo o densidad, cuantiles / Jenks / intervalos iguales) o jurisdicciones sanitarias; paletas institucionales y por padecimiento; tamaño, color y forma de los puntos; establecimientos de interés numerados; leyenda, mapa de ubicación, norte, escala y fuente. Descarga en PNG (hasta 3×) o SVG editable, o copia directa al portapapeles.
+- Pestaña **Exportar mapa** para presentaciones con los filtros activos: formatos 16:9, 4:3, cuadrado, vertical y carta; concentración de unidades por municipio (conteo o densidad, cuantiles / Jenks / intervalos iguales) o jurisdicciones sanitarias; 19 fuentes, tamaño y color del texto; paletas generales, institucionales, por padecimiento, aptas para daltonismo y personalizadas (con opción de invertir); tamaño, color y forma de los puntos; establecimientos de interés numerados; leyenda, mapa de ubicación, norte, escala y fuente. Descarga en PNG (hasta 3×) o SVG editable, o copia directa al portapapeles.
 
 ## Archivos
 | Ruta | Contenido |
