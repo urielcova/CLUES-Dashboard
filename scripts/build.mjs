@@ -69,7 +69,10 @@ const huella = createHash("sha256");
 for (const b of [appJs, leafletJs, ...Object.values(gz)]) huella.update(b);
 // capas del Marco Geoestadístico (solo en la versión web; el archivo único no las incluye por tamaño)
 const marco = ["localidades.json.gz", "rurales.json.gz", ...["ageb", "mun"].flatMap((c) => readdirSync(ruta("datos", "marco", c)).sort().map((f) => `${c}/${f}`)),
-  ...readdirSync(ruta("datos", "marco", "ent")).sort().flatMap((e) => readdirSync(ruta("datos", "marco", "ent", e)).sort().map((f) => `ent/${e}/${f}`))];
+  // solo entidades completas (servicios.json.gz se escribe al final de scripts/marco/por_entidad.sh)
+  ...readdirSync(ruta("datos", "marco", "ent")).sort()
+    .filter((e) => readdirSync(ruta("datos", "marco", "ent", e)).includes("servicios.json.gz"))
+    .flatMap((e) => ["manzanas", "calles", "servicios"].map((c) => `ent/${e}/${c}.json.gz`))];
 for (const f of marco) huella.update(readFileSync(ruta("datos", "marco", f)));
 const V = huella.digest("hex").slice(0, 10);
 const inicio = ["d-base", "d-ent", "d-mun", "d-ref"].reduce((s, id) => s + gz[id].length, 0);
